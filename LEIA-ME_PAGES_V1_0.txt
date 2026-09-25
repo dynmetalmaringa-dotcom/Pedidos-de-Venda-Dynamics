@@ -1,0 +1,19 @@
+PUBLICAR O APP NO GITHUB PAGES — V1.0
+Link final: https://dynmetalmaringa-dotcom.github.io/Pedidos-de-Venda-Dynamics/
+
+1. Abra index.html no Bloco de Notas. Na linha  var APP_URL = 'COLE_AQUI_O_LINK_EXEC';
+   troque COLE_AQUI_O_LINK_EXEC pelo link /exec do Apps Script (mantenha as aspas). Salve.
+   (link: Apps Script > Implantar > Gerenciar implantações > App da Web)
+2. GitHub > repositório > Add file > Upload files > arraste:
+   index.html, manifest.json, sw.js, icone.png, icone192.png
+3. Commit changes. Aguarde 1 a 2 minutos (Settings > Pages mostra "Your site is live").
+4. Abra o link final. Deve aparecer a tela de login do app.
+
+INSTALAR
+- Android / computador (Chrome ou Edge): botão vermelho "Instalar app" no canto,
+  ou 3 pontinhos > Instalar app.
+- iPhone (Safari): Compartilhar > Adicionar à Tela de Início.
+
+Obs.: o repositório público mostra o código, não os dados. Dados, senhas e acessos
+continuam só na planilha, e o app exige login com senha.
+Se o Apps Script mudar de link (nova implantação, não nova versão), repita o passo 1.
