@@ -1,0 +1,561 @@
+<script>
+/* =====================================================================
+   FLUXO VENDA DYNAMICS · Script V2.0
+   ===================================================================== */
+var TK = '', EU = null, B = null, TELA = '';
+var F = { mes: '', dia: '', q: '', todo: false };          // filtros da Diretoria
+var FC = { mes: '', q: '' };                               // filtros de Clientes
+var SEL = {};                                              // cartões selecionados
+var AUD = { cod: '', mes: '', q: '' };                     // auditoria
+var LOGF = 'tudo';
+var MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+var SEMANA = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+var ROT = { dir: 'Diretoria', orc: 'Orçamento', adm: 'Suporte' };
+var T_DIR = [['dia','Dia'],['mes','Mês'],['cli','Clientes']];
+var T_ORC = [['aud','Auditoria'],['up','Upload e registros']];
+
+/* ============================ utilidades ============================ */
+function rs(n){ var a = Math.abs(Number(n) || 0); return a > 0 && a < 100 ? a.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : Math.round(a).toLocaleString('pt-BR'); }
+function rs2(n){ return (Math.abs(Number(n) || 0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pc(n){ return (Number(n) || 0).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}); }
+function qt(n){ n = Number(n) || 0; return n % 1 ? n.toLocaleString('pt-BR',{maximumFractionDigits:3}) : String(n); }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function sn(v){ return v > 0.004 ? '+' : v < -0.004 ? '&minus;' : ''; }
+function dObj(s){ var m = /^(\d{2})\/(\d{2})\/(\d{2,4})$/.exec(String(s || '').trim()); if (!m) return null; var a = +m[3]; if (a < 100) a += 2000; return new Date(a, +m[2] - 1, +m[1]); }
+function chave(s){ var d = dObj(s); return d ? d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate() : 0; }
+function mesDe(s){ var d = dObj(s); return d ? d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) : ''; }
+function mesNome(m){ var p = String(m).split('-'); return p.length === 2 ? MESES[+p[1] - 1] + ' ' + p[0] : 'todos os meses'; }
+function extA(s){ var d = dObj(s); return d ? d.getDate() + ' de ' + MESES[d.getMonth()] + ' de ' + d.getFullYear() : esc(s); }
+function semana(s){ var d = dObj(s); return d ? SEMANA[d.getDay()] : ''; }
+function isoDe(s){ var d = dObj(s); return d ? d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) : ''; }
+function deIso(v){ var p = String(v).split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0].slice(-2) : ''; }
+function hojeBr(){ var h = new Date(); return ('0' + h.getDate()).slice(-2) + '/' + ('0' + (h.getMonth() + 1)).slice(-2) + '/' + String(h.getFullYear()).slice(-2); }
+function diasAte(s){ var d = dObj(s); if (!d) return null; var h = new Date(); h.setHours(0,0,0,0); return Math.round((d - h) / 86400000); }
+function prazo(s){
+  var n = diasAte(s); if (n === null) return { t: '', c: '' };
+  if (n === 0) return { t: 'vence hoje', c: 'pr' };
+  if (n > 0) return { t: 'em ' + n + ' dia' + (n > 1 ? 's' : ''), c: '' };
+  return { t: 'há ' + (-n) + ' dia' + (n < -1 ? 's' : ''), c: 'pr' };
+}
+function diasRev(s){ var n = diasAte(s); return n === null ? null : Math.max(0, -n); }
+function clDias(n){ return n === null ? 'd3' : n > 180 ? 'd3' : n > 90 ? 'd2' : 'd1'; }
+function txDias(n){ return n === null ? 'sem data' : n + ' dia' + (n === 1 ? '' : 's'); }
+function norm(s){ return String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function osDe(oc){ return String(oc || '').replace(/-\d{2}$/, ''); }
+var CORES = ['#0B63B5','#B0101A','#1C7A48','#A55A1C','#5B45A0','#0F7A8C','#7A1420','#3E4855','#8A6D00','#0B3C7D'];
+function corDe(c){ var n = 0, s = String(c || '0'); for (var i = 0; i < s.length; i++) n += s.charCodeAt(i) * (i + 1); return CORES[n % CORES.length]; }
+function iniDe(nome){ var p = String(nome || '').trim().split(/[\s._-]+/).filter(String); if (!p.length) return '··'; return p.length === 1 ? p[0].substring(0,2).toUpperCase() : (p[0].charAt(0) + p[1].charAt(0)).toUpperCase(); }
+function marca(cd, nome){
+  var lg = B && B.logos ? B.logos[cd] : null;
+  if (lg) return '<div class="lg"><img src="' + lg + '" alt="' + esc(nome) + '"></div>';
+  return '<div class="lg mn" style="background:' + corDe(cd || nome) + '">' + iniDe(nome) + '</div>';
+}
+function toast(m){ var t = document.getElementById('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(window._tt); window._tt = setTimeout(function(){ t.classList.remove('on'); }, 3600); }
+function dif(p){ return p.comp - p.tab; }
+function clsDif(v, base){ if (!base) return 'nd'; return v > 0.005 ? 'ac' : v < -0.005 ? 'ab' : 'eq'; }
+function bdgDesvio(p){
+  if (p.sv) return '<span class="bdg nd">remessa sem valor</span>';
+  if (!p.ct) return '<span class="bdg nd">sem tabela</span>';
+  var v = dif(p), c = clsDif(v, p.tab);
+  if (c === 'eq') return '<span class="bdg eq">igual à tabela</span>';
+  return '<span class="bdg ' + c + '">' + sn(v) + 'R$ ' + rs(v) + ' · ' + sn(v) + pc(Math.abs(v / p.tab * 100)) + '%</span>';
+}
+
+/* ============================ servidor ============================ */
+function srv(fn, args, ok, er){
+  var r = google.script.run.withSuccessHandler(ok || function(){}).withFailureHandler(function(e){
+    var m = e && e.message ? e.message : String(e);
+    if (/SESSAO_EXPIRADA/.test(m)){ toast('Sessão expirada. Entre de novo.'); limparSessao(); mostrarLogin(); return; }
+    if (er) er(m); else toast('Erro: ' + m);
+  });
+  r[fn].apply(r, args || []);
+}
+function reg(acao, det){ srv('registrar', [TK, acao, det]); }
+function guardar(k, v){ try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch(e){} }
+function lerG(k){ try { return sessionStorage.getItem(k) || ''; } catch(e){ return ''; } }
+function limparSessao(){ TK = ''; guardar('fvd_tk', ''); guardar('fvd_eu', ''); }
+
+/* ============================ login e termo ============================ */
+var TERMO = '<p>Este termo regula o acesso ao aplicativo <b>Fluxo Venda Dynamics</b>, de propriedade da <b>Dynamics Metalurgica Ltda</b>, CNPJ 07.243.050/0001-49, com sede na Avenida Pioneiro Antonio Ruiz Saldanha, 2358, Jardim Industrial, Maringá-PR, CEP 87.065-290 (“Empresa”), controladora dos dados aqui tratados. Responsável: <b>Michele Puma</b>.</p>' +
+  '<h4>1. Objeto</h4><p>O aplicativo reúne pedidos de venda, ordens de serviço, valores, tabelas de preço e informações comerciais de clientes da Empresa e do Grupo Pailon. Todo o conteúdo é <b>informação confidencial</b> e de uso exclusivamente interno.</p>' +
+  '<h4>2. Compromisso de confidencialidade</h4><p>O usuário se compromete a: (a) usar as informações somente para as atividades da sua função; (b) não copiar, fotografar, imprimir, exportar ou repassar dados a terceiros, concorrentes, clientes ou fornecedores sem autorização da Diretoria; (c) não compartilhar usuário e senha, que são pessoais e intransferíveis; (d) encerrar a sessão ao deixar o equipamento; (e) comunicar imediatamente à Diretoria qualquer acesso indevido, perda ou vazamento.</p>' +
+  '<h4>3. Proteção de dados pessoais (LGPD)</h4><p>O tratamento observa a Lei nº 13.709/2018. Os dados de clientes, revendas e contatos são tratados para execução de contratos e procedimentos comerciais (art. 7º, V) e legítimo interesse da Empresa na gestão de vendas e preços (art. 7º, IX), limitados ao mínimo necessário (art. 6º, III). Os dados do próprio usuário (nome, usuário, data e hora de acesso, ações realizadas) são tratados para segurança da informação e controle de acesso.</p>' +
+  '<h4>4. Registro de atividades</h4><p>O usuário declara ciência de que <b>todos os acessos, consultas, impressões, downloads e envios de arquivos são registrados</b> com identificação, data e hora, e podem ser auditados pela Empresa.</p>' +
+  '<h4>5. Direitos do titular</h4><p>Os titulares podem exercer os direitos do art. 18 da LGPD (confirmação, acesso, correção, anonimização, eliminação e informação sobre compartilhamento) pelo contato com a responsável indicada acima.</p>' +
+  '<h4>6. Vigência e penalidades</h4><p>As obrigações de sigilo valem durante o vínculo com a Empresa e por 5 (cinco) anos após o seu término. O descumprimento sujeita o usuário às medidas disciplinares cabíveis, à responsabilização civil por perdas e danos e às sanções legais aplicáveis, inclusive às previstas na LGPD e no art. 195 da Lei nº 9.279/1996.</p>' +
+  '<h4>7. Aceite</h4><p>Ao marcar “Li e aceito” e entrar, o usuário declara ter lido e concordado com este termo. O aceite é registrado com data e hora.</p>' +
+  '<p style="margin-top:12px;color:#8C96A4">Maringá-PR · Dynamics Metalurgica Ltda · Termo versão 1.0</p>';
+document.getElementById('termoTxt').innerHTML = TERMO;
+function verTermo(e){ if (e) e.preventDefault(); document.getElementById('mdl').classList.add('on'); }
+function fecharTermo(){ document.getElementById('mdl').classList.remove('on'); }
+function aceitarTermo(){ document.getElementById('lgT').checked = true; fecharTermo(); }
+
+function mostrarLogin(){
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('lgn').style.display = '';
+  document.getElementById('lgB').disabled = false;
+}
+function entrar(e){
+  e.preventDefault();
+  var u = document.getElementById('lgU').value.trim().toUpperCase(), s = document.getElementById('lgS').value;
+  var ac = document.getElementById('lgT').checked, er = document.getElementById('lgE'), bt = document.getElementById('lgB');
+  if (!u || !s){ er.textContent = 'Informe usuário e senha.'; return; }
+  bt.disabled = true; bt.textContent = 'Entrando…'; er.textContent = '';
+  srv('login', [u, s, ac], function(r){
+    bt.disabled = false; bt.textContent = 'Entrar';
+    if (!r.ok){ er.textContent = r.msg; if (r.termo) verTermo(); return; }
+    TK = r.token; EU = { u: r.usuario, p: r.perfil, n: r.nome };
+    guardar('fvd_tk', TK); guardar('fvd_eu', JSON.stringify(EU));
+    document.getElementById('lgS').value = '';
+    abrirApp();
+  }, function(m){ bt.disabled = false; bt.textContent = 'Entrar'; er.textContent = 'Falha: ' + m; });
+}
+function sairApp(){ srv('sair', [TK]); limparSessao(); B = null; mostrarLogin(); }
+
+function abrirApp(){
+  document.getElementById('lgn').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  document.getElementById('euNome').innerHTML = '<b>' + esc(EU.n) + '</b>' + (norm(EU.n) === norm(ROT[EU.p]) ? '' : ' · ' + (ROT[EU.p] || ''));
+  document.getElementById('euIni').textContent = iniDe(EU.n);
+  document.getElementById('wrap').innerHTML = '<div class="carregando"><div class="sp1"></div>Carregando a base…</div>';
+  srv('carregar', [TK], iniciar, function(m){
+    document.getElementById('wrap').innerHTML = '<div class="vazio"><b>Não consegui carregar a base</b><p>' + esc(m) + '</p></div>';
+  });
+}
+
+(function(){
+  var tk = lerG('fvd_tk'), eu = lerG('fvd_eu');
+  if (tk && eu){ try { TK = tk; EU = JSON.parse(eu); abrirApp(); return; } catch(e){} }
+  mostrarLogin();
+})();
+
+/* ============================ arranque ============================ */
+var MESES_D = [];
+function iniciar(d){
+  B = d; EU = d.eu;
+  B.P.forEach(function(p){ p.me = mesDe(p.dp); p.k = chave(p.dp); p.os = osDe(p.oc); p.bus = norm([p.oc, p.os.replace(/\D/g, ''), p.erp, p.cli, p.rv, p.loc].join(' ')); });
+  B.P.sort(function(a, b){ return b.k - a.k || b.v - a.v; });
+  var m = {}; B.P.forEach(function(p){ if (p.me) m[p.me] = 1; });
+  MESES_D = Object.keys(m).sort().reverse();
+  F.mes = MESES_D[0] || ''; FC.mes = F.mes; AUD.mes = '';
+  F.dia = B.P.length ? B.P[0].dp : hojeBr();
+  montarNav();
+  ir(EU.p === 'orc' ? 'aud' : 'dia');
+}
+function telasDoPerfil(){ return EU.p === 'orc' ? T_ORC : T_DIR.concat(T_ORC); }
+function montarNav(){
+  var h = '';
+  function bt(x){ return '<button data-s="' + x[0] + '" onclick="ir(\'' + x[0] + '\')">' + x[1] + '</button>'; }
+  if (EU.p !== 'orc') h += '<span class="grp">Diretoria</span>' + T_DIR.map(bt).join('');
+  h += '<span class="grp">Orçamento</span>' + T_ORC.map(bt).join('');
+  document.getElementById('nav').innerHTML = h;
+}
+function ir(id){
+  var ok = telasDoPerfil().some(function(t){ return t[0] === id; });
+  if (!ok) id = telasDoPerfil()[0][0];
+  TELA = id;
+  [].forEach.call(document.querySelectorAll('#nav button'), function(b){ b.classList.toggle('on', b.getAttribute('data-s') === id); });
+  var w = document.getElementById('wrap');
+  try {
+    w.innerHTML = ({ dia: telaDia, mes: telaMes, cli: telaCli, aud: telaAud, up: telaUp })[id]();
+  } catch (e){
+    w.innerHTML = '<div class="vazio"><b>Erro ao montar a tela</b><p>' + esc(e.message || e) + '</p></div>';
+  }
+}
+function selMes(atual, fn, comTodos){
+  return '<select onchange="' + fn + '(this.value)">' + (comTodos ? '<option value="">Todos os meses</option>' : '') +
+    MESES_D.map(function(m){ return '<option value="' + m + '"' + (m === atual ? ' selected' : '') + '>' + mesNome(m) + '</option>'; }).join('') + '</select>';
+}
+function somar(l){
+  var s = { n: l.length, v: 0, v40: 0, comp: 0, tab: 0, it: 0 };
+  l.forEach(function(p){ s.v += p.v; s.v40 += p.v40; s.comp += p.comp; s.tab += p.tab; s.it += p.itens.length; });
+  s.d = s.comp - s.tab; return s;
+}
+function kDesvio(s){ return s.tab ? '<b class="' + (s.d > 0.005 ? 'ac' : s.d < -0.005 ? 'ab' : '') + '">' + sn(s.d) + 'R$ ' + rs(s.d) + ' <small>(' + sn(s.d) + pc(Math.abs(s.d / s.tab * 100)) + '%)</small></b>' : '<b>—</b>'; }
+
+/* ============================ cartão ============================ */
+function cartao(p, comCk){
+  var pz = prazo(p.ent), os = p.os || ('ERP ' + p.erp);
+  var itens = p.itens.map(itemLinha).join('');
+  var n = p.itens.length;
+  return '<div class="pc' + (SEL[p.id] ? ' sel' : '') + '" id="pc_' + esc(p.id) + '">' +
+    '<div class="pc-l">' +
+    (comCk ? '<input type="checkbox" class="pc-ck" title="Selecionar para imprimir" ' + (SEL[p.id] ? 'checked' : '') + ' onclick="marcar(\'' + esc(p.id) + '\',this.checked)">' : '') +
+      '<div class="pc-t">' + marca(p.cd, p.cli) +
+        '<div class="pc-os"><span>ORDEM DE SERVIÇO</span><b class="' + (p.os ? '' : 'sm') + '">' + esc(os) + '</b>' +
+        '<i class="rev' + (+p.rev > 0 ? ' r1' : '') + '">REV ' + esc(p.rev) + '</i></div></div>' +
+      '<div class="pc-c">' + esc(p.cli) + (p.rv ? ' <em>· ' + esc(p.rv) + '</em>' : '') + (p.loc ? ' <em>· ' + esc(p.loc) + '</em>' : '') + '</div>' +
+      '<div class="pc-m">ERP ' + esc(p.erp) + ' · ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + '</div>' +
+      '<div class="pc-d"><div><span>Data do pedido</span><b>' + esc(p.dp) + '</b><em>' + semana(p.dp) + '</em></div>' +
+        '<div><span>Entrega</span><b>' + esc(p.ent) + '</b><em class="' + pz.c + '">' + pz.t + '</em></div></div>' +
+      '<div class="pc-v"><div><span>Valor cheio</span><b>R$ ' + rs(p.v) + '</b></div>' +
+        '<div class="dy"><span>Valor Dynamics 40%</span><b>R$ ' + rs(p.v40) + '</b></div></div>' +
+      '<div class="pc-dv">Contra tabela ' + bdgDesvio(p) + (p.ct && p.ct < n ? '<span>' + p.ct + ' de ' + n + ' com tabela</span>' : '') + '</div>' +
+    '</div>' +
+    '<button class="pc-tg" onclick="this.parentNode.classList.toggle(\'ab\')">Ver ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + '</button>' +
+    '<div class="pc-r"><table class="it"><thead><tr><th>Código</th><th>Descrição</th><th class="r">Qtde × unit.</th><th class="r">Total</th><th>Contra tabela</th><th class="r">Preço tabela</th><th class="r">Diferença</th></tr></thead><tbody>' +
+      (itens || '<tr><td colspan="7">Sem itens lidos.</td></tr>') + '</tbody></table></div></div>';
+}
+function itemLinha(x){
+  var c, bd, dfv = 0;
+  if (x.tb > 0){
+    dfv = x.t - x.tb * x.q; c = clsDif(dfv, 1);
+    bd = c === 'eq' ? '<span class="bdg eq">igual</span>' : '<span class="bdg ' + c + '">' + sn(dfv) + pc(Math.abs((x.u - x.tb) / x.tb * 100)) + '%</span>';
+  } else { c = 'nd'; bd = '<span class="bdg nd">' + (/DUPLIC/.test(x.st) ? 'duplicado na base' : 'sem tabela') + '</span>'; }
+  return '<tr><td class="cd ' + c + '">' + esc(x.c) + '</td><td class="ds">' + esc(x.d) + '</td>' +
+    '<td class="r num">' + qt(x.q) + ' ' + esc(x.un) + ' × ' + rs2(x.u) + '</td>' +
+    '<td class="r num"><b>' + rs2(x.t) + '</b></td><td>' + bd + '</td>' +
+    '<td class="r num">' + (x.tb > 0 ? rs2(x.tb) + '<small>' + (/^\d/.test(x.dt) ? 'rev ' + esc(x.dt) : 'sem data') + '</small>' : '—') + '</td>' +
+    '<td class="r num ' + (dfv > 0.005 ? 'tx-ac' : dfv < -0.005 ? 'tx-ab' : '') + '">' + (x.tb > 0 ? sn(dfv) + rs2(dfv) : '—') + '</td></tr>';
+}
+function marcar(id, v){ if (v) SEL[id] = 1; else delete SEL[id]; var e = document.getElementById('pc_' + id); if (e) e.classList.toggle('sel', !!v); contarSel(); }
+function contarSel(){ var e = document.getElementById('nSel'); if (e) e.textContent = Object.keys(SEL).length; }
+
+function blocoData(dp, lista, comCk){
+  var s = somar(lista);
+  return '<div class="bd"><div class="bd-h"><div class="bd-d"><small>' + semana(dp) + ' · pedidos de venda</small>' + extA(dp) + '</div>' +
+    '<div class="bd-k"><div>Pedidos<b>' + s.n + '</b></div><div>Valor cheio<b>R$ ' + rs(s.v) + '</b></div>' +
+    '<div>Valor Dynamics<b>R$ ' + rs(s.v40) + '</b></div><div>Contra tabela' + kDesvio(s) + '</div></div></div>' +
+    '<div class="bd-b">' + lista.map(function(p){ return cartao(p, comCk); }).join('') + '</div></div>';
+}
+function emBlocos(lista, comCk){
+  var g = {}, ord = [];
+  lista.forEach(function(p){ if (!g[p.dp]){ g[p.dp] = []; ord.push(p.dp); } g[p.dp].push(p); });
+  ord.sort(function(a, b){ return chave(b) - chave(a); });
+  return ord.map(function(d){ return blocoData(d, g[d], comCk); }).join('');
+}
+function buscar(lista, q){
+  q = norm(q).trim(); if (!q) return lista;
+  var qd = q.replace(/\D/g, '');
+  return lista.filter(function(p){ return p.bus.indexOf(q) >= 0 || (qd.length >= 3 && p.bus.replace(/\D/g, '').indexOf(qd) >= 0 && p.os.replace(/\D/g, '').indexOf(qd) >= 0); });
+}
+
+/* ============================ DIA ============================ */
+var DIA_HTML = '';
+function telaDia(){
+  var lista, tit;
+  var base = F.mes ? B.P.filter(function(p){ return p.me === F.mes; }) : B.P;
+  if (F.q){ lista = buscar(base, F.q); tit = 'Busca “' + esc(F.q) + '” em ' + mesNome(F.mes) + ' · ' + lista.length + ' pedido(s)'; }
+  else if (F.todo){ lista = base; tit = 'Todos os dias de ' + mesNome(F.mes); }
+  else { lista = B.P.filter(function(p){ return p.dp === F.dia; }); tit = ''; }
+  var h = '<div class="fl"><span class="lb">Dia</span><button class="btn sq" onclick="passaDia(-1)" title="Dia anterior">‹</button>' +
+    '<input type="date" value="' + isoDe(F.dia) + '" onchange="F.dia=deIso(this.value);F.q=\'\';F.todo=false;F.mes=mesDe(F.dia)||F.mes;ir(\'dia\')">' +
+    '<button class="btn sq" onclick="passaDia(1)" title="Próximo dia">›</button>' +
+    '<span class="lb">Mês</span>' + selMes(F.mes, 'fMes', true) +
+    '<button class="btn' + (F.todo ? ' on' : '') + '" onclick="F.todo=!F.todo;F.q=\'\';ir(\'dia\')">Mês inteiro</button>' +
+    '<input type="search" placeholder="Buscar OS ou cliente" value="' + esc(F.q) + '" onkeydown="if(event.key===\'Enter\'){F.q=this.value;ir(\'dia\')}" onsearch="F.q=this.value;ir(\'dia\')">' +
+    '<button class="btn red" onclick="imprimirDia()">PDF</button><button class="btn" onclick="excelPedidos(DIA_L,\'pedidos\')">Excel</button></div>';
+  window.DIA_L = lista;
+  if (tit) h += '<div class="sec">' + tit + '</div>';
+  if (!lista.length){
+    var viz = vizinhos(F.dia);
+    h += '<div class="vazio"><b>' + (F.q ? 'Nada encontrado' : 'Nenhum pedido em ' + extA(F.dia)) + '</b><p>' +
+      (F.q ? 'Confira o número da OS ou o nome do cliente. A busca olha o mês escolhido; escolha “Todos os meses” para buscar em tudo.' : 'Escolha outra data no calendário.') + '</p>' +
+      viz.map(function(d){ return '<button class="btn" onclick="F.dia=\'' + d + '\';ir(\'dia\')">' + d + '</button>'; }).join('') + '</div>';
+    return h;
+  }
+  if (!tit) h += emBlocos(lista); else h += emBlocos(lista);
+  return h;
+}
+function fMes(v){ F.mes = v; if (TELA === 'dia' && !F.q) F.todo = true; ir(TELA); }
+function vizinhos(d){
+  var k = chave(d), ds = {}; B.P.forEach(function(p){ ds[p.dp] = p.k; });
+  var l = Object.keys(ds), ant = null, dep = null;
+  l.forEach(function(x){ if (ds[x] < k && (!ant || ds[x] > ds[ant])) ant = x; if (ds[x] > k && (!dep || ds[x] < ds[dep])) dep = x; });
+  return [ant, dep].filter(Boolean);
+}
+function passaDia(n){
+  var d = dObj(F.dia) || new Date(); d.setDate(d.getDate() + n);
+  F.dia = ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + String(d.getFullYear()).slice(-2);
+  F.q = ''; F.todo = false; F.mes = mesDe(F.dia); ir('dia');
+}
+function imprimirDia(){
+  var l = window.DIA_L || [];
+  if (!l.length){ toast('Nada para imprimir.'); return; }
+  var t = F.q ? 'Busca: ' + F.q + ' · ' + mesNome(F.mes) : F.todo ? 'Pedidos de ' + mesNome(F.mes) : 'Pedidos de ' + extA(F.dia);
+  imprimir(t, emBlocos(l), 'IMPRESSÃO DIA', t + ' · ' + l.length + ' pedidos');
+}
+
+/* ============================ MÊS ============================ */
+var MES_L = [];
+function telaMes(){
+  var base = F.mes ? B.P.filter(function(p){ return p.me === F.mes; }) : B.P;
+  var s = somar(base), sit = 0, acima = 0, abaixo = 0;
+  base.forEach(function(p){ p.itens.forEach(function(x){ if (!(x.tb > 0)) sit++; else { var d = x.t - x.tb * x.q; if (d > 0.005) acima += d; else if (d < -0.005) abaixo += d; } }); });
+  var lista = buscar(base, F.q); MES_L = lista;
+  var h = '<div class="fl"><span class="lb">Mês</span>' + selMes(F.mes, 'fMes', true) +
+    '<input type="search" placeholder="Buscar OS ou cliente" value="' + esc(F.q) + '" onkeydown="if(event.key===\'Enter\'){F.q=this.value;ir(\'mes\')}" onsearch="F.q=this.value;ir(\'mes\')">' +
+    '<button class="btn red" onclick="imprimirMes()">PDF</button><button class="btn" onclick="excelPedidos(MES_L,\'mes\')">Excel</button></div>';
+  h += '<div class="kpis">' +
+    kp('Pedidos', s.n, '', s.it + ' itens') + kp('Valor cheio', 'R$ ' + rs(s.v), '', mesNome(F.mes)) +
+    kp('Valor Dynamics 40%', 'R$ ' + rs(s.v40), '', 'valor dos PDFs') +
+    kp('Contra tabela', (s.tab ? sn(s.d) + 'R$ ' + rs(s.d) : '—'), s.d > 0.005 ? 'ac' : s.d < -0.005 ? 'ab' : '', s.tab ? sn(s.d) + pc(Math.abs(s.d / s.tab * 100)) + '% nos itens com tabela' : '') +
+    kp('Itens sem tabela', sit, '', 'acima R$ ' + rs(acima) + ' · abaixo R$ ' + rs(abaixo)) + '</div>';
+
+  /* por dia */
+  var g = {}; base.forEach(function(p){ g[p.dp] = (g[p.dp] || 0) + p.v; });
+  var dias = Object.keys(g).sort(function(a, b){ return chave(a) - chave(b); });
+  var mx = Math.max.apply(null, dias.map(function(d){ return g[d]; }).concat([1]));
+  var bars = dias.map(function(d){ return '<div class="b" title="' + d + ' · R$ ' + rs(g[d]) + '" onclick="F.dia=\'' + d + '\';F.q=\'\';F.todo=false;ir(\'dia\')"><i style="height:' + Math.max(2, g[d] / mx * 100) + '%"></i><span>' + d.substring(0, 2) + '</span></div>'; }).join('');
+  /* carteira por mês de entrega */
+  var ct = {}; B.P.forEach(function(p){ var m = mesDe(p.ent); if (m){ ct[m] = ct[m] || { n: 0, v: 0 }; ct[m].n++; ct[m].v += p.v; } });
+  var cm = Object.keys(ct).sort(), cmx = Math.max.apply(null, cm.map(function(m){ return ct[m].v; }).concat([1]));
+  /* clientes */
+  var cl = {}; base.forEach(function(p){ var k = p.cli; cl[k] = cl[k] || { cli: p.cli, cd: p.cd, v: 0, n: 0 }; cl[k].v += p.v; cl[k].n++; });
+  var cls = Object.keys(cl).map(function(k){ return cl[k]; }).sort(function(a, b){ return b.v - a.v; }).slice(0, 10);
+  var cmx2 = cls.length ? cls[0].v : 1;
+  h += '<div class="m2"><div class="cx"><h3>Vendido por dia do pedido<span class="sp"></span><span style="font-weight:500;text-transform:none;letter-spacing:0">toque na barra para abrir o dia</span></h3><div class="bars">' + (bars || '<p>Sem pedidos.</p>') + '</div></div>' +
+    '<div class="cx"><h3>Carteira por mês de entrega</h3>' + cm.map(function(m){ return '<div class="lin"><span class="n">' + mesNome(m) + ' · ' + ct[m].n + ' ped.</span><span class="g"><i style="width:' + (ct[m].v / cmx * 100) + '%"></i></span><b class="num">R$ ' + rs(ct[m].v) + '</b></div>'; }).join('') + '</div></div>';
+  h += '<div class="m2"><div class="cx"><h3>Pedidos ' + (F.q ? '· busca “' + esc(F.q) + '”' : '') + '<span class="sp"></span>' + lista.length + '</h3><div class="tbw alto"><table class="tb"><thead><tr><th>Data</th><th>OS</th><th>Cliente</th><th>Entrega</th><th class="r">Cheio</th><th class="r">Dynamics</th><th>Contra tabela</th></tr></thead><tbody>' +
+    lista.map(function(p){ return '<tr class="lk" onclick="F.dia=\'' + p.dp + '\';F.q=\'' + esc(p.os || p.erp) + '\';F.mes=\'' + p.me + '\';ir(\'dia\')"><td class="num">' + p.dp + '</td><td class="cd">' + esc(p.os || 'ERP ' + p.erp) + '</td><td><b>' + esc(p.cli) + '</b><br><small style="color:#8C96A4">' + esc(p.rv) + '</small></td><td class="num">' + p.ent + '</td><td class="r num">' + rs(p.v) + '</td><td class="r num">' + rs(p.v40) + '</td><td>' + bdgDesvio(p) + '</td></tr>'; }).join('') +
+    '</tbody></table></div></div>' +
+    '<div class="cx"><h3>Maiores clientes</h3>' + cls.map(function(c){ return '<div class="lin">' + marca(c.cd, c.cli) + '<span class="n">' + esc(c.cli) + ' · ' + c.n + '</span><span class="g"><i style="width:' + (c.v / cmx2 * 100) + '%"></i></span><b class="num">R$ ' + rs(c.v) + '</b></div>'; }).join('') + '</div></div>';
+  return h;
+}
+function kp(l, v, c, s){ return '<div class="kp"><div class="kp-l">' + l + '</div><div class="kp-v ' + (c || '') + '">' + v + '</div>' + (s ? '<div class="kp-s">' + s + '</div>' : '') + '</div>'; }
+function imprimirMes(){
+  if (!MES_L.length){ toast('Nada para imprimir.'); return; }
+  var t = 'Pedidos de ' + mesNome(F.mes) + (F.q ? ' · busca ' + F.q : '');
+  imprimir(t, emBlocos(MES_L), 'IMPRESSÃO MÊS', t + ' · ' + MES_L.length + ' pedidos');
+}
+
+/* ============================ CLIENTES ============================ */
+var CLI_G = [], FECH = {};
+function telaCli(){
+  var base = FC.mes ? B.P.filter(function(p){ return p.me === FC.mes; }) : B.P;
+  base = buscar(base, FC.q);
+  var g = {};
+  base.forEach(function(p){ var k = p.cd + '|' + p.cli; g[k] = g[k] || { k: k, cli: p.cli, cd: p.cd, l: [] }; g[k].l.push(p); });
+  CLI_G = Object.keys(g).map(function(k){ var x = g[k]; x.s = somar(x.l); return x; }).sort(function(a, b){ return b.s.v - a.s.v; });
+  var h = '<div class="fl"><span class="lb">Mês</span>' + selMes(FC.mes, 'fcMes', true) +
+    '<input type="search" placeholder="Buscar cliente ou OS" value="' + esc(FC.q) + '" onkeydown="if(event.key===\'Enter\'){FC.q=this.value;ir(\'cli\')}" onsearch="FC.q=this.value;ir(\'cli\')">' +
+    '<span class="gap"></span><span class="lb">Selecionados: <b id="nSel">' + Object.keys(SEL).length + '</b></span>' +
+    '<button class="btn" onclick="SEL={};ir(\'cli\')">Limpar</button>' +
+    '<button class="btn red" onclick="imprimirCli(true)">PDF selecionados</button>' +
+    '<button class="btn dk" onclick="imprimirCli(false)">PDF da tela</button>' +
+    '<button class="btn" onclick="excelCli()">Excel</button></div>';
+  if (!CLI_G.length) return h + '<div class="vazio"><b>Nenhum pedido</b><p>Ajuste o mês ou a busca.</p></div>';
+  h += CLI_G.map(function(c, i){
+    var s = c.s, id = 'cg' + i;
+    var todos = c.l.every(function(p){ return SEL[p.id]; });
+    return '<div class="cg' + (FECH[c.k] ? ' fe' : '') + '" id="' + id + '"><div class="cg-h" onclick="togCli(' + i + ',event)">' +
+      '<input type="checkbox" title="Selecionar todos deste cliente" ' + (todos ? 'checked' : '') + ' onclick="marcarCli(' + i + ',this.checked)">' +
+      marca(c.cd, c.cli) +
+      '<div class="cg-n">' + esc(c.cli) + '<small>' + s.n + ' pedido' + (s.n > 1 ? 's' : '') + ' · ' + s.it + ' itens · ' + mesNome(FC.mes) + '</small></div>' +
+      '<div class="cg-k"><div>Valor cheio<b>R$ ' + rs(s.v) + '</b></div><div>Dynamics 40%<b>R$ ' + rs(s.v40) + '</b></div><div>Contra tabela' + kDesvio(s) + '</div></div></div>' +
+      '<div class="cg-b">' + c.l.map(function(p){ return cartao(p, true); }).join('') + '</div></div>';
+  }).join('');
+  return h;
+}
+function togCli(i, e){ if (e.target.tagName === 'INPUT') return; var k = CLI_G[i].k; FECH[k] = !FECH[k]; document.getElementById('cg' + i).classList.toggle('fe', FECH[k]); }
+function fcMes(v){ FC.mes = v; ir('cli'); }
+function marcarCli(i, v){ CLI_G[i].l.forEach(function(p){ marcar(p.id, v); var e = document.querySelector('#pc_' + CSS.escape(p.id) + ' .pc-ck'); if (e) e.checked = v; }); }
+function imprimirCli(soSel){
+  var grupos = CLI_G.map(function(c){ return { c: c, l: soSel ? c.l.filter(function(p){ return SEL[p.id]; }) : c.l }; }).filter(function(x){ return x.l.length; });
+  if (!grupos.length){ toast(soSel ? 'Marque os pedidos que quer imprimir.' : 'Nada para imprimir.'); return; }
+  var n = 0, h = grupos.map(function(x){
+    var s = somar(x.l); n += x.l.length;
+    return '<div class="cg"><div class="cg-h">' + marca(x.c.cd, x.c.cli) + '<div class="cg-n">' + esc(x.c.cli) + '<small>' + s.n + ' pedido(s) · ' + mesNome(FC.mes) + '</small></div>' +
+      '<div class="cg-k"><div>Valor cheio<b>R$ ' + rs(s.v) + '</b></div><div>Dynamics 40%<b>R$ ' + rs(s.v40) + '</b></div><div>Contra tabela' + kDesvio(s) + '</div></div></div>' +
+      '<div class="cg-b">' + x.l.map(function(p){ return cartao(p, false); }).join('') + '</div></div>';
+  }).join('');
+  var t = 'Pedidos por cliente · ' + mesNome(FC.mes);
+  imprimir(t, h, 'IMPRESSÃO CLIENTES', t + ' · ' + grupos.map(function(x){ return x.c.cli; }).join(', ') + ' · ' + n + ' pedidos');
+}
+function excelCli(){
+  var l = []; CLI_G.forEach(function(c){ c.l.forEach(function(p){ if (!Object.keys(SEL).length || SEL[p.id]) l.push(p); }); });
+  excelPedidos(l, 'clientes');
+}
+
+/* ============================ AUDITORIA ============================ */
+function clientesAud(){
+  var m = {};
+  (B.tabelas || []).forEach(function(t){ m[t.cod] = { cod: t.cod, cli: t.cli, t: t }; });
+  B.P.forEach(function(p){ if (!p.cd) return; m[p.cd] = m[p.cd] || { cod: p.cd, cli: p.cli, t: null }; });
+  return Object.keys(m).map(function(k){ var c = m[k]; c.dv = divergencias(c.cod); c.n = c.dv.preco.length + c.dv.sem.length + c.dv.tab.filter(function(x){ return x.dup || x.dias === null; }).length; return c; })
+    .sort(function(a, b){ return b.n - a.n || (a.cli < b.cli ? -1 : 1); });
+}
+function divergencias(cod){
+  var preco = [], sem = [];
+  B.P.forEach(function(p){
+    if (p.cd !== cod || p.sv) return;
+    if (AUD.mes && p.me !== AUD.mes) return;
+    p.itens.forEach(function(x){
+      var r = { c: x.c, d: x.d, un: x.un, q: x.q, u: x.u, tb: x.tb, os: p.os || 'ERP ' + p.erp, dp: p.dp, dt: x.dt, st: x.st };
+      if (x.tb > 0){ var d = x.u - x.tb; if (Math.abs(d) > 0.005){ r.df = d; r.dft = x.t - x.tb * x.q; r.pct = d / x.tb * 100; r.dias = diasRev(x.dt); preco.push(r); } }
+      else sem.push(r);
+    });
+  });
+  var tab = ((B.tabItens || {})[cod] || []).slice().sort(function(a, b){ var x = a.dias === null ? 1e9 : a.dias, y = b.dias === null ? 1e9 : b.dias; return y - x; });
+  preco.sort(function(a, b){ return Math.abs(b.dft) - Math.abs(a.dft); });
+  return { preco: preco, sem: sem, tab: tab };
+}
+var AUD_C = null;
+function telaAud(){
+  var cs = clientesAud();
+  var h = '<div class="fl"><span class="lb">Pedidos de</span>' + selMes(AUD.mes, 'aMes', true) +
+    '<input type="search" placeholder="Buscar cliente" value="' + esc(AUD.q) + '" onkeydown="if(event.key===\'Enter\'){AUD.q=this.value;ir(\'aud\')}" onsearch="AUD.q=this.value;ir(\'aud\')">' +
+    (AUD.cod ? '<button class="btn" onclick="AUD.cod=\'\';ir(\'aud\')">‹ Todos os clientes</button>' : '') + '</div>';
+  if (!AUD.cod){
+    var l = cs.filter(function(c){ return !AUD.q || norm(c.cli).indexOf(norm(AUD.q)) >= 0 || c.cod.indexOf(AUD.q) >= 0; });
+    h += '<div class="sec">Escolha o cliente <span>divergências de preço nos pedidos, itens vendidos sem tabela, duplicados e sem data na tabela</span></div><div class="ag">' +
+      l.map(function(c){
+        var t = c.t;
+        return '<button class="ac-c" onclick="AUD.cod=\'' + c.cod + '\';ir(\'aud\')">' + marca(c.cod, c.cli) + '<div><b>' + esc(c.cli) + '</b><small>' + c.cod + ' · ' + (t ? t.it + ' itens na tabela' : 'sem tabela carregada') + '</small>' +
+          '<small>' + (t ? 'revisão mais antiga: ' + txDias(t.dMax) : '') + '</small></div><div class="q' + (c.n ? '' : ' ok') + '">' + c.n + '<small>PENDÊNCIAS</small></div></button>';
+      }).join('') + '</div>';
+    return h;
+  }
+  var c = cs.filter(function(x){ return x.cod === AUD.cod; })[0];
+  if (!c){ AUD.cod = ''; return telaAud(); }
+  AUD_C = c;
+  var dv = c.dv, t = c.t;
+  var pend = dv.tab.filter(function(x){ return x.dup || x.dias === null; }).length;
+  h += '<div class="hd">' + marca(c.cod, c.cli) + '<div><h2>' + esc(c.cli) + '</h2><div style="color:#4F5A68;font-size:13px">Código Dyn ' + c.cod + (t ? ' · tabela: ' + esc(t.arq || '—') + ' · carga ' + esc(t.carga || '—') : ' · sem tabela carregada') + '</div></div><span class="sp"></span>' +
+    '<button class="btn red" onclick="audPdf()">PDF da lista</button><button class="btn" onclick="audExcel()">Excel da lista</button></div>';
+  h += '<div class="kpis" style="margin-top:14px">' + kp('Preço diferente da tabela', dv.preco.length, dv.preco.length ? 'ab' : '', 'itens vendidos · ' + mesNome(AUD.mes)) +
+    kp('Vendido sem tabela', dv.sem.length, '', 'código não está na tabela') + kp('Itens na tabela', t ? t.it : 0, '', t ? t.ok + ' ok' : '') +
+    kp('Duplicados / sem data', pend, pend ? 'ab' : '', t ? t.dup + ' duplicados · ' + t.sd + ' sem data' : '') +
+    kp('Dias sem revisão', t && t.dMax !== null ? t.dMax : '—', t && t.dMax > 180 ? 'ab' : '', t && t.dMin !== null ? 'mais recente: ' + txDias(t.dMin) : '') + '</div>';
+  h += '<div class="sec">1 · Vendido com preço diferente da tabela <span>' + dv.preco.length + ' item(ns)</span></div>' + tabPreco(dv.preco);
+  h += '<div class="sec">2 · Vendido sem preço na tabela <span>' + dv.sem.length + ' item(ns) — cadastrar na tabela</span></div>' + tabSem(dv.sem);
+  h += '<div class="sec">3 · Tabela completa do cliente <span>' + dv.tab.length + ' item(ns), da revisão mais antiga para a mais nova</span></div>' + tabTab(dv.tab);
+  return h;
+}
+function aMes(v){ AUD.mes = v; ir('aud'); }
+function tabPreco(l){
+  if (!l.length) return '<div class="vazio"><b>Nenhuma divergência de preço</b></div>';
+  return '<div class="tbw"><table class="tb"><thead><tr><th>Código</th><th>Descrição</th><th>OS</th><th>Pedido</th><th class="r">Qtde</th><th class="r">Vendido un.</th><th class="r">Tabela un.</th><th class="r">Dif. un.</th><th class="r">%</th><th class="r">Dif. total</th><th>Revisão tabela</th><th class="r">Dias sem revisão</th></tr></thead><tbody>' +
+    l.map(function(x){ var c = x.df > 0 ? 'tx-ac' : 'tx-ab'; return '<tr><td class="cd">' + esc(x.c) + '</td><td>' + esc(x.d) + '</td><td class="cd">' + esc(x.os) + '</td><td class="num">' + x.dp + '</td><td class="r num">' + qt(x.q) + '</td><td class="r num">' + rs2(x.u) + '</td><td class="r num">' + rs2(x.tb) + '</td><td class="r num ' + c + '">' + sn(x.df) + rs2(x.df) + '</td><td class="r num ' + c + '">' + sn(x.df) + pc(Math.abs(x.pct)) + '%</td><td class="r num ' + c + '"><b>' + sn(x.dft) + rs2(x.dft) + '</b></td><td class="num">' + (/^\d/.test(x.dt) ? x.dt : 'sem data') + '</td><td class="r"><span class="dias ' + clDias(x.dias) + '">' + txDias(x.dias) + '</span></td></tr>'; }).join('') + '</tbody></table></div>';
+}
+function tabSem(l){
+  if (!l.length) return '<div class="vazio"><b>Todos os itens vendidos têm preço na tabela</b></div>';
+  return '<div class="tbw"><table class="tb"><thead><tr><th>Código</th><th>Descrição</th><th>OS</th><th>Pedido</th><th class="r">Qtde</th><th class="r">Vendido un.</th><th>Situação</th></tr></thead><tbody>' +
+    l.map(function(x){ return '<tr><td class="cd">' + esc(x.c) + '</td><td>' + esc(x.d) + '</td><td class="cd">' + esc(x.os) + '</td><td class="num">' + x.dp + '</td><td class="r num">' + qt(x.q) + '</td><td class="r num">' + rs2(x.u) + '</td><td><span class="bdg nd">' + esc(x.st || 'SEM PREÇO EM TABELA') + '</span></td></tr>'; }).join('') + '</tbody></table></div>';
+}
+function tabTab(l){
+  if (!l.length) return '<div class="vazio"><b>Sem tabela carregada para este cliente</b><p>Envie a tabela na aba Upload.</p></div>';
+  return '<div class="tbw alto"><table class="tb"><thead><tr><th>Código</th><th>Descrição</th><th>Un.</th><th class="r">Preço</th><th>Revisão</th><th class="r">Dias sem revisão</th><th>Situação</th><th>Origem</th></tr></thead><tbody>' +
+    l.map(function(x){ return '<tr><td class="cd">' + esc(x.c) + '</td><td>' + esc(x.d) + '</td><td>' + esc(x.un) + '</td><td class="r num">' + rs2(x.p) + '</td><td class="num">' + (x.dr && /^\d/.test(x.dr) ? x.dr : 'sem data') + '</td><td class="r"><span class="dias ' + clDias(x.dias) + '">' + txDias(x.dias) + '</span></td><td>' + (x.dup ? '<span class="bdg ab">duplicado</span>' : x.dias === null ? '<span class="bdg am">sem data</span>' : '<span class="bdg ac">ok</span>') + '</td><td><small>' + esc(x.aba) + (x.ln ? ' · linha ' + esc(x.ln) : '') + '</small></td></tr>'; }).join('') + '</tbody></table></div>';
+}
+function audPdf(){
+  var c = AUD_C; if (!c) return;
+  var h = '<div class="hd">' + marca(c.cod, c.cli) + '<div><h2>' + esc(c.cli) + '</h2><div>Código Dyn ' + c.cod + ' · pedidos de ' + mesNome(AUD.mes) + '</div></div></div>' +
+    '<div class="sec">1 · Vendido com preço diferente da tabela <span>' + c.dv.preco.length + '</span></div>' + tabPreco(c.dv.preco) +
+    '<div class="sec">2 · Vendido sem preço na tabela <span>' + c.dv.sem.length + '</span></div>' + tabSem(c.dv.sem) +
+    '<div class="sec">3 · Tabela completa <span>' + c.dv.tab.length + '</span></div>' + tabTab(c.dv.tab).replace('tbw alto', 'tbw');
+  imprimir('Divergências de preço · ' + c.cli, h, 'DOWNLOAD PDF DIVERGÊNCIAS', c.cod + ' ' + c.cli + ' · ' + mesNome(AUD.mes));
+}
+function audExcel(){
+  var c = AUD_C; if (!c) return;
+  var L = [['bloco','codigo','descricao','os','data_pedido','qtde','vendido_un','tabela_un','dif_un','dif_pct','dif_total','revisao_tabela','dias_sem_revisao','situacao']];
+  c.dv.preco.forEach(function(x){ L.push(['PRECO DIFERENTE', x.c, x.d, x.os, x.dp, x.q, x.u, x.tb, x.df, x.pct, x.dft, x.dt, x.dias === null ? '' : x.dias, '']); });
+  c.dv.sem.forEach(function(x){ L.push(['SEM TABELA', x.c, x.d, x.os, x.dp, x.q, x.u, '', '', '', '', '', '', x.st]); });
+  c.dv.tab.forEach(function(x){ L.push(['TABELA', x.c, x.d, '', '', '', '', x.p, '', '', '', x.dr, x.dias === null ? '' : x.dias, x.dup ? 'DUPLICADO' : x.dias === null ? 'SEM DATA' : 'OK']); });
+  csv('Divergencias_' + c.cod + '_' + c.cli.replace(/\W+/g, '_') + '.csv', L);
+  reg('DOWNLOAD EXCEL DIVERGÊNCIAS', c.cod + ' ' + c.cli + ' · ' + mesNome(AUD.mes) + ' · ' + (L.length - 1) + ' linhas');
+}
+
+/* ============================ UPLOAD E REGISTROS ============================ */
+function telaUp(){
+  var h = '<div class="up3">' +
+    '<div class="drop"><b>Pedido de venda (PDF)</b><p>Um ou vários PDFs do ForWood. Entram na fila e são lidos no próximo processamento.</p><input type="file" accept="application/pdf" multiple onchange="subir(this,\'pedido\')"><div id="st_pedido"></div></div>' +
+    '<div class="drop"><b>Tabela de preço (Excel)</b><p>Tabela corrigida do cliente. Substitui a vigente no próximo processamento.</p><input type="file" accept=".xlsx,.xlsm,.xls" multiple onchange="subir(this,\'tabela\')"><div id="st_tabela"></div></div>' +
+    '<div class="drop"><b>Logo do cliente</b><p>PNG ou JPG até 45 KB.</p><input type="text" id="lgCod" placeholder="Código Dyn (ex.: 416)" maxlength="3"><input type="text" id="lgCli" placeholder="Nome do cliente"><input type="file" accept="image/png,image/jpeg" onchange="subir(this,\'logo\')"><div id="st_logo"></div></div></div>';
+  var tb = (B.tabelas || []).slice().sort(function(a, b){ return (b.dMax || 0) - (a.dMax || 0); });
+  h += '<div class="sec">Tabelas vigentes <span>última carga e tempo sem revisão por cliente</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>Arquivo</th><th>Carga</th><th class="r">Itens</th><th class="r">Sem data</th><th class="r">Duplicados</th><th class="r">Revisão mais recente</th><th class="r">Revisão mais antiga</th></tr></thead><tbody>' +
+    (tb.map(function(t){ return '<tr class="lk" onclick="AUD.cod=\'' + t.cod + '\';ir(\'aud\')"><td><b>' + esc(t.cli) + '</b> <small>' + t.cod + '</small></td><td>' + esc(t.arq) + '</td><td class="num">' + esc(t.carga) + '</td><td class="r num">' + t.it + '</td><td class="r num">' + t.sd + '</td><td class="r num">' + t.dup + '</td><td class="r"><span class="dias ' + clDias(t.dMin) + '">' + txDias(t.dMin) + '</span></td><td class="r"><span class="dias ' + clDias(t.dMax) + '">' + txDias(t.dMax) + '</span></td></tr>'; }).join('') || '<tr><td colspan="8">Nenhuma tabela carregada.</td></tr>') + '</tbody></table></div>';
+  var fl = { tudo: 'Tudo', up: 'Uploads', down: 'Downloads e impressões', ac: 'Acessos' };
+  var logs = (B.logs || []).filter(function(r){
+    if (LOGF === 'up') return /UPLOAD/.test(r.a);
+    if (LOGF === 'down') return /DOWNLOAD|IMPRESS/.test(r.a);
+    if (LOGF === 'ac') return /LOGIN|SAIR|TERMO/.test(r.a);
+    return true;
+  });
+  h += '<div class="sec">Registro de atividades <span>quem fez, o quê, quando</span></div><div class="fl">' +
+    Object.keys(fl).map(function(k){ return '<button class="btn' + (LOGF === k ? ' on' : '') + '" onclick="LOGF=\'' + k + '\';ir(\'up\')">' + fl[k] + '</button>'; }).join('') +
+    '<span class="gap"></span><button class="btn" onclick="recarregar()">Atualizar</button><button class="btn" onclick="excelLog()">Excel</button></div>' +
+    '<div class="tbw alto"><table class="tb"><thead><tr><th>Data e hora</th><th>Usuário</th><th>Ação</th><th>Detalhe</th></tr></thead><tbody>' +
+    (logs.map(function(r){ return '<tr><td class="num">' + esc(r.dh) + '</td><td><b>' + esc(r.u) + '</b></td><td><span class="bdg ' + (/UPLOAD/.test(r.a) ? 'eq' : /DOWNLOAD|IMPRESS/.test(r.a) ? 'am' : /RECUS|FALHOU/.test(r.a) ? 'ab' : 'nd') + '">' + esc(r.a) + '</span></td><td>' + esc(r.d) + '</td></tr>'; }).join('') || '<tr><td colspan="4">Nenhum registro.</td></tr>') + '</tbody></table></div>';
+  return h;
+}
+function recarregar(){ var t = TELA; srv('carregar', [TK], function(d){ var a = AUD.cod; iniciar(d); AUD.cod = a; ir(t); toast('Atualizado.'); }); }
+function excelLog(){
+  var L = [['data_hora','usuario','acao','detalhe']];
+  (B.logs || []).forEach(function(r){ L.push([r.dh, r.u, r.a, r.d]); });
+  csv('Registro_atividades.csv', L); reg('DOWNLOAD EXCEL REGISTROS', (L.length - 1) + ' linhas');
+}
+function subir(inp, tipo){
+  var fs = [].slice.call(inp.files || []), st = document.getElementById('st_' + tipo);
+  if (!fs.length) return;
+  var extra = {};
+  if (tipo === 'logo'){
+    extra.cod = document.getElementById('lgCod').value.trim(); extra.cli = document.getElementById('lgCli').value.trim();
+    if (!/^\d{3}$/.test(extra.cod) || !extra.cli){ st.innerHTML = '<div class="fi er">Informe código Dyn (3 dígitos) e nome.</div>'; inp.value = ''; return; }
+  }
+  st.innerHTML = '';
+  (function prox(i){
+    if (i >= fs.length){ inp.value = ''; if (tipo === 'logo') recarregar(); return; }
+    var f = fs[i], id = 'f' + Date.now() + i;
+    st.insertAdjacentHTML('beforeend', '<div class="fi" id="' + id + '">Enviando ' + esc(f.name) + '…</div>');
+    var r = new FileReader();
+    r.onload = function(){
+      srv('enviarArquivo', [TK, tipo, f.name, f.type || 'application/octet-stream', String(r.result).split(',')[1], extra], function(x){
+        var e = document.getElementById(id); e.className = 'fi ' + (x.ok ? 'ok' : 'er'); e.textContent = x.msg; prox(i + 1);
+      }, function(m){ var e = document.getElementById(id); e.className = 'fi er'; e.textContent = m; prox(i + 1); });
+    };
+    r.readAsDataURL(f);
+  })(0);
+}
+
+/* ============================ exportação ============================ */
+function csv(nome, L){
+  var t = '﻿' + L.map(function(r){ return r.map(function(v){
+    if (typeof v === 'number') v = String(Math.round(v * 100) / 100).replace('.', ',');
+    v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(';'); }).join('\r\n');
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([t], { type: 'text/csv;charset=utf-8' }));
+  a.download = nome; document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 800);
+}
+function excelPedidos(l, q){
+  l = l || []; if (!l.length){ toast('Nada para exportar.'); return; }
+  var L = [['data_pedido','os','rev','erp','cliente','revenda','cidade','entrega','valor_cheio','valor_dynamics_40','itens','itens_com_tabela','vendido_comparavel','tabela_comparavel','contra_tabela']];
+  l.forEach(function(p){ L.push([p.dp, p.os, p.rev, p.erp, p.cli, p.rv, p.loc, p.ent, p.v, p.v40, p.itens.length, p.ct, p.comp, p.tab, p.comp - p.tab]); });
+  csv('Pedidos_' + q + '.csv', L); reg('DOWNLOAD EXCEL PEDIDOS', q + ' · ' + l.length + ' pedidos');
+}
+var CSS_PR = '@page{size:A4 landscape;margin:8mm}' +
+  'body{background:#fff!important;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+  '.pr-h{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #D0121C;padding-bottom:6px;margin-bottom:10px}' +
+  '.pr-h b{font-family:Archivo,sans-serif;font-size:18px}.pr-h span{font-size:10px;color:#566170;text-align:right}' +
+  '.pr-m{font-family:Archivo,sans-serif;font-weight:800;color:#D0121C;letter-spacing:.08em;font-size:12px}' +
+  '.pr-f{margin-top:10px;font-size:9px;color:#8C96A4;border-top:1px solid #E1E5EA;padding-top:4px}' +
+  '.pc{grid-template-columns:290px 1fr!important;margin-bottom:6px}.pc-r{display:flex!important;border-top:0!important}.pc-tg,.pc-ck{display:none!important}' +
+  '.pc-l{padding:8px 10px;gap:6px}.pc-os b{font-size:22px!important}.pc-d b,.pc-v b{font-size:16px!important}.lg{width:80px;min-height:50px}.lg img{max-height:42px}' +
+  '.it{min-width:0!important;font-size:10px}.it td,.it th{padding:4px 5px}' +
+  '.bd{break-inside:auto}.bd-h{padding:8px 12px;break-after:avoid}.bd-d{font-size:20px!important}.bd-k b{font-size:14px!important}.bd-b{background:#fff;padding:6px;display:block}' +
+  '.cg{break-inside:auto;background:#fff}.cg-h{grid-template-columns:110px 1fr auto!important;padding:8px 12px}.cg-h .lg{width:110px}.cg-n{font-size:18px}.cg-k{grid-column:auto!important;justify-content:flex-end!important;text-align:right!important;gap:22px!important}.cg-k b{font-size:15px!important}.pc-l{border-right:1px solid #E1E5EA!important}.kpis{grid-template-columns:repeat(5,1fr)!important}.cg.fe .cg-b,.cg-b{display:block!important}.cg-b .pc{margin-bottom:6px}' +
+  '.tbw{max-height:none!important;overflow:visible!important;border:0}.tb{font-size:9.5px}.tb th{position:static}.tb td,.tb th{padding:4px 5px}.tb tr{break-inside:avoid}' +
+  '.hd{border:0;padding:0 0 6px}.sec{font-size:13px;margin:12px 0 4px;break-after:avoid}.vazio{padding:8px}';
+function imprimir(titulo, corpo, acao, det){
+  var agora = new Date(), dh = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR').substring(0, 5);
+  var st = document.querySelector('style').outerHTML;
+  var doc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(titulo) + '</title>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">' +
+    st + '<style>' + CSS_PR + '</style></head><body>' +
+    '<div class="pr-h"><div><div class="pr-m">DYNAMICS METALÚRGICA</div><b>' + esc(titulo) + '</b></div><span>Emitido por ' + esc(EU.n) + ' em ' + dh + '<br>Fluxo Venda Dynamics</span></div>' +
+    corpo + '<div class="pr-f">Documento confidencial de uso interno · Dynamics Metalurgica Ltda · CNPJ 07.243.050/0001-49 · Emissão registrada em nome de ' + esc(EU.u) + ' (LGPD)</div></body></html>';
+  var fr = document.getElementById('prFr');
+  if (fr) fr.remove();
+  fr = document.createElement('iframe'); fr.id = 'prFr';
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(fr);
+  var d = fr.contentWindow.document; d.open(); d.write(doc); d.close();
+  var feito = false;
+  function vai(){ if (feito) return; feito = true; try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch(e){ toast('Não consegui abrir a impressão: ' + e.message); } }
+  fr.onload = function(){ setTimeout(vai, 250); };
+  setTimeout(vai, 1500);
+  reg(acao, det);
+  toast('Na janela de impressão, escolha “Salvar como PDF”.');
+}
+</script>

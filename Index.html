@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<?!= inc('Estilo'); ?>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div class="lgn" id="lgn">
+  <div class="lgn-a">
+    <div class="lgn-mc">DYNAMICS<span>METALÚRGICA</span></div>
+    <div class="lgn-tt">Fluxo de<br>Pedidos de Venda</div>
+    <p>Ordens de serviço, valores e conferência contra a tabela de preço de cada cliente.</p>
+    <div class="lgn-rod">Dynamics Metalurgica Ltda · Grupo Pailon<br>Uso interno e confidencial</div>
+  </div>
+  <div class="lgn-b">
+    <form class="lgn-f" id="lgnF" onsubmit="entrar(event)">
+      <h2>Acesso restrito</h2>
+      <p class="lgn-s">Entre com o usuário e a senha fornecidos pela Diretoria.</p>
+      <label>Usuário<input id="lgU" autocomplete="username" autocapitalize="characters" spellcheck="false" required></label>
+      <label>Senha<input id="lgS" type="password" autocomplete="current-password" required></label>
+      <label class="lgn-ck"><input type="checkbox" id="lgT"> <span>Li e aceito o <a href="#" onclick="verTermo(event)">Termo de Confidencialidade e Proteção de Dados (LGPD)</a></span></label>
+      <button class="lgn-bt" id="lgB" type="submit">Entrar</button>
+      <div class="lgn-e" id="lgE"></div>
+      <div class="lgn-cnpj">Dynamics Metalurgica Ltda · CNPJ 07.243.050/0001-49<br>Av. Pioneiro Antonio Ruiz Saldanha, 2358 · Jardim Industrial · Maringá-PR · 87.065-290</div>
+    </form>
+  </div>
+</div>
+
+<!-- ================= TERMO ================= -->
+<div class="mdl" id="mdl" onclick="if(event.target===this)fecharTermo()">
+  <div class="mdl-c">
+    <div class="mdl-h"><b>Termo de Confidencialidade e Proteção de Dados</b><span>Versão 1.0 · LGPD — Lei nº 13.709/2018</span></div>
+    <div class="mdl-t" id="termoTxt"></div>
+    <div class="mdl-f"><button class="btn" onclick="fecharTermo()">Fechar</button><button class="btn red" onclick="aceitarTermo()">Li e aceito</button></div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app" style="display:none">
+  <div class="top">
+    <span class="marca">DYNAMICS</span>
+    <h1>PEDIDOS DE VENDA</h1>
+    <div class="sp"></div>
+    <div class="eu"><span id="euNome">—</span><i id="euIni">··</i><button class="sair" onclick="sairApp()">Sair</button></div>
+  </div>
+  <div class="nav" id="nav"></div>
+  <div class="wrap" id="wrap"><div class="carregando"><div class="sp1"></div>Carregando a base…</div></div>
+  <div class="conf">Documento confidencial · uso interno Dynamics Metalurgica Ltda · acessos registrados (LGPD)</div>
+</div>
+
+<div class="toast" id="toast"></div>
+<?!= inc('Script'); ?>
+</body>
+</html>
