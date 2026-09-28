@@ -1,16 +1,25 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V2.0
+ * Arquivo: App              Versão: V2.4
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
  * Lê a base que Tabelas e Pedidos alimentam. Não recalcula preço.
  *
+ * ABA ACESSOS (editar direto na planilha, sem rodar nada)
+ *   usuario | senha | nome | telas | ativo | aceite_termo | ultimo_acesso
+ *   telas: DIA, MES, CLIENTES, AUDITORIA, UPLOAD  (separadas por vírgula)
+ *          ou TODAS.   ativo: SIM ou NAO.
+ *   O usuário SUPORTE não aparece no registro de atividades.
+ *   email: e-mail que recebe os avisos.   avisos: PEDIDOS, TABELAS (ou os dois).
+ *     PEDIDOS = aviso de novo pedido de venda (Diretoria)
+ *     TABELAS = itens vendidos sem tabela / fora da tabela e tabelas vencidas (Orçamento)
+ *
  * FUNÇÕES PARA O EDITOR
- *   instalarV2()                 cria abas Acessos/LogAcoes e os usuários
- *   redefinirSenha('PAULA','Nova@123')   troca a senha de alguém
- *   bloquearUsuario('PAULA')     tira o acesso (ativo = NAO)
- *   situacaoApp()                confere a base e o tempo de carga
+ *   instalarV2()   cria as abas Acessos e LogAcoes (uma vez só)
+ *   situacaoApp()  confere a base e o tempo de carga
+ *   ativarAvisosV2_3()  V2.3 — cria as colunas email/avisos e liga os e-mails (uma vez)
+ *   testarAvisos()      manda um e-mail de teste para cada destinatário
  **********************************************************************/
 
 var APP_TITULO   = 'Fluxo Venda Dynamics';
@@ -22,8 +31,10 @@ var P_UP_PEDIDOS = '03 Pedidos de Venda Novos';
 var P_UP_TABELAS = '01 Tabelas Atualizadas';
 var LIMITE_LOGO  = 45000;
 var SESSAO_SEG   = 21600;            // 6 horas
-var TERMO_VERSAO = 'V1.0';
-var COLS_ACESSOS = ['usuario','perfil','nome','senha_hash','ativo','aceite_termo','ultimo_acesso'];
+var TERMO_VERSAO = 'V1.1';
+var COLS_ACESSOS = ['usuario','senha','nome','telas','ativo','aceite_termo','ultimo_acesso','email','avisos'];
+var LINK_APP = 'https://dynmetalmaringa-dotcom.github.io/Pedidos-de-Venda-Dynamics/';
+var DIAS_TABELA_VELHA = 180;
 var COLS_LOG     = ['data_hora','usuario','perfil','acao','detalhe'];
 
 /* ====================== PUBLICAÇÃO ====================== */
@@ -38,34 +49,32 @@ function inc(nome) { return HtmlService.createHtmlOutputFromFile(nome).getConten
 
 /* ====================== INSTALAÇÃO ====================== */
 
+/* Nomes das telas aceitos na coluna "telas" da aba Acessos */
+var TELAS_OK = { DIA: 'dia', MES: 'mes', 'MÊS': 'mes', CLIENTES: 'cli', AUDITORIA: 'aud', UPLOAD: 'up' };
+var TODAS_TELAS = ['dia', 'mes', 'cli', 'aud', 'up'];
+
 function instalarV2() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var velha = ss.getSheetByName(ABA_ACESSOS);
-  if (velha && String(velha.getRange(1, 1).getValues()[0][0]).trim() !== 'usuario') {
-    velha.setName('Acessos_V1_antigo');
-    velha = null;
+  var sh = ss.getSheetByName(ABA_ACESSOS);
+  if (sh && String(sh.getRange(1, 2).getValues()[0][0]).trim() !== 'senha') {
+    sh.setName('Acessos_antigo_' + Utilities.formatDate(new Date(), FUSO, 'ddMMyy_HHmm'));
+    sh = null;
   }
-  var sh = velha || ss.insertSheet(ABA_ACESSOS);
-  if (sh.getLastRow() < 1 || String(sh.getRange(1, 1).getValues()[0][0]).trim() !== 'usuario') {
+  var novos = 0;
+  if (!sh) {
+    sh = ss.insertSheet(ABA_ACESSOS);
     sh.getRange(1, 1, 1, COLS_ACESSOS.length).setValues([COLS_ACESSOS]).setFontWeight('bold');
     sh.setFrozenRows(1);
+    sh.getRange(1, 1, sh.getMaxRows(), COLS_ACESSOS.length).setNumberFormat('@');
+    var dir = 'DIA, MES, CLIENTES, AUDITORIA, UPLOAD', orc = 'AUDITORIA, UPLOAD';
+    var USU = [['MICHELE','Michele Puma',dir],['PAULA','Paula',dir],['LUCIANO','Luciano',dir],['CESAR','Cesar',dir],
+               ['FERNANDA','Fernanda',orc],['JULIANA','Juliana',orc],['SUPORTE','Suporte','TODAS']];
+    var linhas = USU.map(function (u) {
+      return [u[0], 'Dyn' + Utilities.getUuid().replace(/-/g, '').substring(0, 5).toUpperCase(), u[1], u[2], 'SIM', '', ''];
+    });
+    sh.getRange(2, 1, linhas.length, COLS_ACESSOS.length).setValues(linhas);
+    novos = linhas.length;
   }
-  var USU = [
-    ['MICHELE','dir','Michele Puma','f606b5e21e5363be17df490442f512ee673ac6548df8acd1568cb2b749443b0d'],
-    ['PAULA','dir','Paula','74806745aa91b5d502411c3416e541a7122ea230f53696c376ab1bd379a81798'],
-    ['LUCIANO','dir','Luciano','cb30ed08a079e63cd291f8a90985eed04920ab7a3d0282e3f23d220163ebecdf'],
-    ['CESAR','dir','Cesar','6fc05843858102e43a71b51b4cab7fc3986c770532036021dd124308bc9e6fa7'],
-    ['FERNANDA','orc','Fernanda','fee7d54368e6c0280ff0ebfe67d1b4c97eb83510e61bcf88565a417a397477be'],
-    ['JULIANA','orc','Juliana','8c32648eeff04b920d29aad66ac98f1b3c26ba25eb7e9bb5dc48b5a00d098fac'],
-    ['SUPORTE','adm','Suporte','47e8d4f632497f0e0cb37e094e0b0f261cd256107eb26e82bbcec2487e4ea918']
-  ];
-  var ja = {};
-  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues()
-    .forEach(function (r) { ja[String(r[0]).trim().toUpperCase()] = true; });
-  var novos = USU.filter(function (u) { return !ja[u[0]]; })
-    .map(function (u) { return [u[0], u[1], u[2], u[3], 'SIM', '', '']; });
-  if (novos.length) sh.getRange(sh.getLastRow() + 1, 1, novos.length, COLS_ACESSOS.length).setValues(novos);
-
   var lg = ss.getSheetByName(ABA_LOG);
   if (!lg) {
     lg = ss.insertSheet(ABA_LOG);
@@ -77,31 +86,10 @@ function instalarV2() {
     shL.getRange(1, 1, 1, 5).setValues([['cod_dyn','cliente','mime','base64','atualizado']]).setFontWeight('bold');
     shL.setFrozenRows(1);
   }
-  Logger.log(novos.length + ' usuário(s) criado(s). Abas Acessos e LogAcoes prontas.');
-  Logger.log('Perfis: dir = Diretoria + Orçamento | orc = Orçamento | adm = suporte (oculto).');
+  Logger.log(novos + ' usuário(s) criado(s) com senha provisória — veja a aba Acessos.');
+  Logger.log('Senha e telas se alteram direto na aba Acessos. Não precisa rodar nada.');
 }
 
-function _hash(usuario, senha) {
-  var b = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
-          'FVD|' + String(usuario).trim().toUpperCase() + '|' + String(senha), Utilities.Charset.UTF_8);
-  return b.map(function (x) { return ('0' + (x & 255).toString(16)).slice(-2); }).join('');
-}
-
-function redefinirSenha(usuario, nova) {
-  if (!usuario || !nova || String(nova).length < 6) { Logger.log('Informe usuário e senha com 6+ caracteres.'); return; }
-  var a = _acharUsuario(usuario);
-  if (!a) { Logger.log('Usuário não encontrado: ' + usuario); return; }
-  a.sh.getRange(a.linha, 4).setValue(_hash(usuario, nova));
-  a.sh.getRange(a.linha, 5).setValue('SIM');
-  _log({ u: 'EDITOR', p: 'adm' }, 'SENHA REDEFINIDA', String(usuario).toUpperCase());
-  Logger.log('Senha de ' + String(usuario).toUpperCase() + ' redefinida.');
-}
-function bloquearUsuario(usuario) {
-  var a = _acharUsuario(usuario);
-  if (!a) { Logger.log('Usuário não encontrado: ' + usuario); return; }
-  a.sh.getRange(a.linha, 5).setValue('NAO');
-  Logger.log(String(usuario).toUpperCase() + ' bloqueado.');
-}
 function _acharUsuario(usuario) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_ACESSOS);
   if (!sh || sh.getLastRow() < 2) return null;
@@ -113,31 +101,63 @@ function _acharUsuario(usuario) {
   return null;
 }
 
+/** "DIA, MES, AUDITORIA" -> ['dia','mes','aud']; "TODAS" -> todas */
+function _telas(txt) {
+  var t = String(txt || '').toUpperCase();
+  if (/TODAS|TUDO/.test(t)) return TODAS_TELAS.slice();
+  var out = [];
+  t.split(/[,;\/\s]+/).forEach(function (x) {
+    var k = TELAS_OK[x.trim()];
+    if (k && out.indexOf(k) < 0) out.push(k);
+  });
+  return TODAS_TELAS.filter(function (k) { return out.indexOf(k) >= 0; });
+}
+
 /* ====================== LOGIN E SESSÃO ====================== */
 
+function _cpfOk(c) {
+  c = String(c || '').replace(/\D/g, '');
+  if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false;
+  for (var t = 9; t < 11; t++) {
+    var s = 0;
+    for (var i = 0; i < t; i++) s += Number(c.charAt(i)) * (t + 1 - i);
+    if (((s * 10) % 11) % 10 !== Number(c.charAt(t))) return false;
+  }
+  return true;
+}
+
 function login(usuario, senha, aceite) {
-  var a = _acharUsuario(usuario);
   var u = String(usuario || '').trim().toUpperCase();
-  if (!a || String(a.r[3]) !== _hash(u, senha)) {
+  var a = _acharUsuario(u);
+  if (!a || String(a.r[1]).trim() === '' || String(a.r[1]).trim() !== String(senha || '').trim()) {
     _log({ u: u || '?', p: '' }, 'LOGIN RECUSADO', 'usuário ou senha incorretos');
     return { ok: false, msg: 'Usuário ou senha incorretos.' };
   }
-  if (String(a.r[4]).trim().toUpperCase() === 'NAO') return { ok: false, msg: 'Usuário bloqueado. Fale com a Diretoria.' };
+  if (String(a.r[4]).trim().toUpperCase() === 'NAO' || String(a.r[4]).trim().toUpperCase() === 'NÃO') {
+    return { ok: false, msg: 'Usuário bloqueado. Fale com a Diretoria.' };
+  }
+  var telas = _telas(a.r[3]);
+  if (!telas.length) return { ok: false, msg: 'Nenhuma tela liberada para este usuário. Fale com a Diretoria.' };
   var aceitou = String(a.r[5]).indexOf(TERMO_VERSAO) >= 0;
-  if (!aceitou && !aceite) return { ok: false, termo: true, msg: 'Leia e aceite o termo para entrar.' };
-  var agora = _agora();
-  var perfil = String(a.r[1]).trim().toLowerCase();
-  if (perfil === 'ambos' || perfil === 'todos') perfil = 'dir';
-  var s = { u: u, p: perfil, n: String(a.r[2] || u).trim() };
   if (!aceitou) {
-    a.sh.getRange(a.linha, 6).setValue('Termo ' + TERMO_VERSAO + ' aceito em ' + agora);
-    _log(s, 'ACEITE DO TERMO', 'Confidencialidade e LGPD ' + TERMO_VERSAO);
+    var nm = aceite && String(aceite.nome || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    var cpf = aceite && String(aceite.cpf || '').replace(/\D/g, '');
+    if (!nm || nm.split(' ').length < 2) return { ok: false, termo: true, msg: 'Leia o termo e assine com nome completo e CPF.' };
+    if (!_cpfOk(cpf)) return { ok: false, termo: true, msg: 'CPF inválido.' };
+    aceite = { nome: nm, cpf: cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') };
+  }
+  var agora = _agora();
+  var s = { u: u, p: u === 'SUPORTE' ? 'oculto' : 'usuario', n: String(a.r[2] || u).trim(), t: telas };
+  if (!aceitou) {
+    a.sh.getRange(a.linha, 6).setValue('Termo ' + TERMO_VERSAO + ' assinado em ' + agora + ' por ' + aceite.nome + ' · CPF ' + aceite.cpf);
+    _log(s, 'ASSINATURA DO TERMO', 'Confidencialidade e LGPD ' + TERMO_VERSAO + ' · ' + aceite.nome +
+         ' · CPF ***.' + aceite.cpf.substring(4, 11) + '-**');
   }
   a.sh.getRange(a.linha, 7).setValue(agora);
   var tk = Utilities.getUuid();
   CacheService.getScriptCache().put('fvd_' + tk, JSON.stringify(s), SESSAO_SEG);
-  _log(s, 'LOGIN', '');
-  return { ok: true, token: tk, perfil: perfil, nome: s.n, usuario: u };
+  _log(s, 'LOGIN', telas.join(', '));
+  return { ok: true, token: tk, telas: telas, nome: s.n, usuario: u };
 }
 
 function sair(tk) {
@@ -183,7 +203,7 @@ function carregar(tk) {
   var s = _sessao(tk);
   var t0 = Date.now();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var out = { eu: { u: s.u, p: s.p, n: s.n }, hoje: Utilities.formatDate(new Date(), FUSO, 'dd/MM/yy'),
+  var out = { eu: { u: s.u, n: s.n, t: s.t }, hoje: Utilities.formatDate(new Date(), FUSO, 'dd/MM/yy'),
               logos: _logos(), logoNomes: _logoNomes(), P: [], tabelas: [], tabItens: {}, logs: [] };
 
   var shP = ss.getSheetByName(ABA_PEDIDOS), shI = ss.getSheetByName(ABA_ITENS);
@@ -227,11 +247,12 @@ function carregar(tk) {
     });
   }
 
-  if (s.p === 'orc' || s.p === 'dir' || s.p === 'adm') {
+  if (s.t.indexOf('aud') >= 0 || s.t.indexOf('up') >= 0) {
     var a = _auditoria();
     out.tabelas = a.tabelas; out.tabItens = a.itens;
-    out.logs = _ultimosLogs(s.p === 'adm');
   }
+  if (s.t.indexOf('up') >= 0) out.logs = _ultimosLogs(s.p === 'oculto');
+  if (s.t.indexOf('dia') < 0 && s.t.indexOf('mes') < 0 && s.t.indexOf('cli') < 0 && s.t.indexOf('aud') < 0) out.P = [];
   out.ms = Date.now() - t0;
   return out;
 }
@@ -296,7 +317,7 @@ function _ultimosLogs(verOculto) {
   var n = Math.min(600, sh.getLastRow() - 1);
   var v = sh.getRange(sh.getLastRow() - n + 1, 1, n, COLS_LOG.length).getValues();
   return v.reverse().filter(function (r) {
-    return verOculto || String(r[2]).trim() !== 'adm';
+    return verOculto || String(r[2]).trim() !== 'oculto';
   }).map(function (r) {
     var dh = r[0];
     if (Object.prototype.toString.call(dh) === '[object Date]') dh = Utilities.formatDate(dh, FUSO, 'dd/MM/yyyy HH:mm:ss');
@@ -377,6 +398,7 @@ function pastaApp_(pai, nome) {
 /** tipo: 'pedido' (PDF) | 'tabela' (Excel) | 'logo' (PNG/JPG) */
 function enviarArquivo(tk, tipo, nome, mime, dados, extra) {
   var s = _sessao(tk);
+  if (s.t.indexOf('up') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Upload.' };
   try {
     var bytes = Utilities.base64Decode(dados);
     var blob  = Utilities.newBlob(bytes, mime, nome);
@@ -426,6 +448,150 @@ function _gravarLogo(cod, cli, mime, b64) {
   sh.appendRow([cod, cli, mime, b64, agora]);
 }
 
+/* ====================== AVISOS POR E-MAIL (V2.3) ====================== */
+
+function ativarAvisosV2_3() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(ABA_ACESSOS);
+  if (!sh) { Logger.log('Aba Acessos não existe. Rode instalarV2 primeiro.'); return; }
+  sh.getRange(1, 8, 1, 2).setValues([['email', 'avisos']]).setFontWeight('bold');
+  var n = sh.getLastRow() - 1;
+  if (n > 0) {
+    var v = sh.getRange(2, 1, n, 9).getValues();
+    var av = v.map(function (r) {
+      if (String(r[8]).trim()) return [r[8]];
+      var t = _telas(r[3]), u = String(r[0]).toUpperCase();
+      if (u === 'SUPORTE') return [''];
+      var a = [];
+      if (t.indexOf('dia') >= 0 || t.indexOf('mes') >= 0) a.push('PEDIDOS');
+      if (t.indexOf('aud') >= 0 && t.indexOf('dia') < 0) a.push('TABELAS');
+      return [a.join(', ')];
+    });
+    sh.getRange(2, 9, n, 1).setValues(av);
+  }
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var f = t.getHandlerFunction();
+    if (f === 'verificarAvisos' || f === 'avisoTabelasSemanal') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('verificarAvisos').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('avisoTabelasSemanal').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).create();
+  var shP = ss.getSheetByName(ABA_PEDIDOS);
+  PropertiesService.getScriptProperties().setProperty('av_linha', String(shP ? shP.getLastRow() : 1));
+  Logger.log('Avisos ligados. Preencha a coluna email da aba Acessos. Coluna avisos: PEDIDOS e/ou TABELAS.');
+}
+
+function _destinos(tipo) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_ACESSOS);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues().filter(function (r) {
+    var at = String(r[4]).trim().toUpperCase();
+    return at !== 'NAO' && at !== 'NÃO' && /@/.test(String(r[7])) &&
+           (String(r[8]).toUpperCase().indexOf(tipo) >= 0 || /TODOS/i.test(String(r[8])));
+  }).map(function (r) { return String(r[7]).trim(); });
+}
+
+function _moeda(n) {
+  var s = (Math.round((Number(n) || 0) * 100) / 100).toFixed(2).split('.');
+  return 'R$ ' + s[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + s[1];
+}
+function _email(para, assunto, titulo, corpo) {
+  if (!para.length) return 0;
+  var html = '<div style="font-family:Arial,sans-serif;max-width:760px;color:#15181D">' +
+    '<div style="background:#15181D;padding:14px 18px;border-bottom:3px solid #D0121C">' +
+    '<span style="color:#D0121C;font-weight:800;letter-spacing:.08em">DYNAMICS</span>' +
+    '<span style="color:#E6E9ED;font-size:12px;margin-left:10px">PEDIDOS DE VENDA</span></div>' +
+    '<div style="padding:16px 18px"><h2 style="margin:0 0 12px;font-size:19px">' + titulo + '</h2>' + corpo +
+    '<p style="margin:18px 0"><a href="' + LINK_APP + '" style="background:#D0121C;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:700">Abrir o app</a></p>' +
+    '<p style="font-size:11px;color:#8C96A4">Aviso automático do Fluxo Venda Dynamics · uso interno e confidencial · Dynamics Metalurgica Ltda.</p></div></div>';
+  MailApp.sendEmail({ to: para.join(','), subject: assunto, htmlBody: html, name: 'Pedidos de Venda Dynamics' });
+  return para.length;
+}
+function _tab(cab, linhas) {
+  var th = cab.map(function (c) { return '<th style="text-align:left;font-size:11px;color:#566170;padding:6px 8px;border-bottom:2px solid #E1E5EA">' + c + '</th>'; }).join('');
+  var tr = linhas.map(function (l) {
+    return '<tr>' + l.map(function (c) { return '<td style="padding:6px 8px;border-bottom:1px solid #EEF1F4;font-size:13px">' + c + '</td>'; }).join('') + '</tr>';
+  }).join('');
+  return '<table style="border-collapse:collapse;width:100%">' + '<tr>' + th + '</tr>' + tr + '</table>';
+}
+
+/** Gatilho a cada 10 min: avisa pedidos novos (Diretoria) e itens fora da tabela (Orçamento). */
+function verificarAvisos() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shP = ss.getSheetByName(ABA_PEDIDOS), shI = ss.getSheetByName(ABA_ITENS);
+  if (!shP) return;
+  var pr = PropertiesService.getScriptProperties();
+  var ult = Number(pr.getProperty('av_linha') || 0), fim = shP.getLastRow();
+  if (!ult) { pr.setProperty('av_linha', String(fim)); return; }
+  if (fim <= ult) return;
+  var P = _idx(COLS_PEDIDOS), I = _idx(COLS_ITENS);
+  var novos = shP.getRange(ult + 1, 1, fim - ult, COLS_PEDIDOS.length).getValues()
+    .filter(function (r) { return String(r[P.vigente]).trim() === 'SIM'; });
+  pr.setProperty('av_linha', String(fim));
+  if (!novos.length) return;
+
+  var ids = {};
+  novos.forEach(function (r) { ids[String(r[P.id_pedido]).trim() + '|' + pvRev_(r[P.revisao])] = r; });
+  var pend = [];
+  if (shI && shI.getLastRow() > 1) {
+    shI.getRange(2, 1, shI.getLastRow() - 1, COLS_ITENS.length).getValues().forEach(function (x) {
+      var r = ids[String(x[I.id_pedido]).trim() + '|' + pvRev_(x[I.revisao])];
+      if (!r) return;
+      var tb = Number(x[I.preco_tabela]) || 0, u = Number(x[I.preco_cheio]) || 0;
+      var st = String(x[I.status_preco] || '').trim();
+      if (tb > 0 && Math.abs(u - tb) <= 0.005 && st === 'OK') return;
+      pend.push([String(r[P.cliente] || r[P.cli_pailon]), String(x[I.codigo]), String(x[I.descricao]),
+                 String(r[P.oc] || 'ERP ' + r[P.numero_erp]), _moeda(u), tb > 0 ? _moeda(tb) : '—',
+                 tb > 0 ? ((u > tb ? '+' : '') + ((u - tb) / tb * 100).toFixed(1).replace('.', ',') + '%') : '—',
+                 tb > 0 ? (st === 'OK' ? 'preço diferente' : st.toLowerCase()) : st.toLowerCase() || 'sem preço em tabela']);
+    });
+  }
+
+  var tot = 0, linhas = novos.map(function (r) {
+    tot += Number(r[P.total_cheio]) || 0;
+    var d = r[P.desvio_pct];
+    return ['<b>' + (String(r[P.oc]).trim() || 'ERP ' + r[P.numero_erp]) + '</b>', String(r[P.cliente] || r[P.cli_pailon]),
+            String(r[P.revenda] || ''), _dataBr(r[P.data_pedido]), _dataBr(r[P.data_entrega]),
+            _moeda(r[P.total_cheio]), d === '' ? 'sem tabela' : (d > 0 ? '+' : '') + String(d).replace('.', ',') + '%'];
+  });
+  var n1 = _email(_destinos('PEDIDOS'),
+    novos.length + ' novo(s) pedido(s) de venda · ' + _moeda(tot),
+    novos.length + ' novo(s) pedido(s) de venda',
+    '<p style="margin:0 0 10px">Valor cheio total: <b>' + _moeda(tot) + '</b></p>' +
+    _tab(['OS', 'Cliente', 'Revenda', 'Pedido', 'Entrega', 'Valor cheio', 'Contra tabela'], linhas));
+
+  var n2 = 0;
+  if (pend.length) {
+    pend.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+    n2 = _email(_destinos('TABELAS'),
+      'Tabela para atualizar: ' + pend.length + ' item(ns) em pedidos novos',
+      'Itens vendidos fora da tabela ou sem preço',
+      '<p style="margin:0 0 10px">Confira na tabela do cliente, corrija e envie a tabela atualizada pelo app (Upload).</p>' +
+      _tab(['Cliente', 'Código', 'Descrição', 'OS', 'Vendido', 'Tabela', 'Dif.', 'Situação'], pend.slice(0, 200)) +
+      (pend.length > 200 ? '<p>… e mais ' + (pend.length - 200) + ' item(ns). Veja todos na Auditoria.</p>' : ''));
+  }
+  _log({ u: 'SISTEMA', p: 'sistema' }, 'AVISOS ENVIADOS', novos.length + ' pedido(s) → ' + n1 + ' e-mail(s) · ' + pend.length + ' item(ns) → ' + n2 + ' e-mail(s)');
+}
+
+/** Gatilho semanal (segunda 7h): tabelas vencidas, sem data ou com código duplicado. */
+function avisoTabelasSemanal() {
+  var a = _auditoria();
+  var l = a.tabelas.filter(function (t) { return t.sd || t.dup || (t.dMax !== null && t.dMax > DIAS_TABELA_VELHA); })
+    .sort(function (x, y) { return (y.dMax || 0) - (x.dMax || 0); })
+    .map(function (t) { return ['<b>' + t.cli + '</b> (' + t.cod + ')', t.it, t.dMax === null ? '—' : t.dMax + ' dias', t.sd, t.dup, t.arq]; });
+  if (!l.length) return;
+  _email(_destinos('TABELAS'), 'Tabelas para revisar: ' + l.length + ' cliente(s)', 'Tabelas de preço para revisar',
+    '<p style="margin:0 0 10px">Clientes com tabela há mais de ' + DIAS_TABELA_VELHA + ' dias sem revisão, itens sem data ou código duplicado.</p>' +
+    _tab(['Cliente', 'Itens', 'Revisão mais antiga', 'Sem data', 'Duplicados', 'Arquivo'], l));
+}
+
+function testarAvisos() {
+  ['PEDIDOS', 'TABELAS'].forEach(function (t) {
+    var d = _destinos(t);
+    Logger.log(t + ': ' + (d.join(', ') || 'ninguém — preencha email e avisos na aba Acessos'));
+    _email(d, 'Teste de aviso · ' + t, 'Teste de aviso (' + t + ')', '<p>Se você recebeu este e-mail, os avisos de ' + t + ' estão funcionando.</p>');
+  });
+}
+
 /* ====================== DIAGNÓSTICO ====================== */
 
 function situacaoApp() {
@@ -435,7 +601,7 @@ function situacaoApp() {
     Logger.log(n + ': ' + conta(n) + ' linha(s)');
   });
   var tk = Utilities.getUuid();
-  CacheService.getScriptCache().put('fvd_' + tk, JSON.stringify({ u: 'EDITOR', p: 'adm', n: 'Editor' }), 60);
+  CacheService.getScriptCache().put('fvd_' + tk, JSON.stringify({ u: 'EDITOR', p: 'oculto', n: 'Editor', t: TODAS_TELAS }), 60);
   var t = Date.now(), d = carregar(tk);
   Logger.log(d.P.length + ' pedidos vigentes · ' + d.tabelas.length + ' tabelas · carga ' + (Date.now() - t) + ' ms');
 }
