@@ -10,7 +10,6 @@ var AUD = { cod: '', mes: '', q: '' };                     // auditoria
 var LOGF = 'tudo';
 var MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 var SEMANA = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
-var ROT = { dir: 'Diretoria', orc: 'Orçamento', adm: 'Suporte' };
 var T_DIR = [['dia','Dia'],['mes','Mês'],['cli','Clientes']];
 var T_ORC = [['aud','Auditoria'],['up','Upload e registros']];
 
@@ -83,12 +82,49 @@ var TERMO = '<p>Este termo regula o acesso ao aplicativo <b>Fluxo Venda Dynamics
   '<h4>4. Registro de atividades</h4><p>O usuário declara ciência de que <b>todos os acessos, consultas, impressões, downloads e envios de arquivos são registrados</b> com identificação, data e hora, e podem ser auditados pela Empresa.</p>' +
   '<h4>5. Direitos do titular</h4><p>Os titulares podem exercer os direitos do art. 18 da LGPD (confirmação, acesso, correção, anonimização, eliminação e informação sobre compartilhamento) pelo contato com a responsável indicada acima.</p>' +
   '<h4>6. Vigência e penalidades</h4><p>As obrigações de sigilo valem durante o vínculo com a Empresa e por 5 (cinco) anos após o seu término. O descumprimento sujeita o usuário às medidas disciplinares cabíveis, à responsabilização civil por perdas e danos e às sanções legais aplicáveis, inclusive às previstas na LGPD e no art. 195 da Lei nº 9.279/1996.</p>' +
-  '<h4>7. Aceite</h4><p>Ao marcar “Li e aceito” e entrar, o usuário declara ter lido e concordado com este termo. O aceite é registrado com data e hora.</p>' +
-  '<p style="margin-top:12px;color:#8C96A4">Maringá-PR · Dynamics Metalurgica Ltda · Termo versão 1.0</p>';
+  '<h4>7. Aceite e assinatura eletrônica</h4><p>Ao informar nome completo e CPF e clicar em “Assinar e entrar”, o usuário declara ter lido integralmente e concordado com este termo, valendo como assinatura eletrônica (Lei nº 14.063/2020, art. 4º, I). O aceite é registrado com nome, CPF, usuário, data e hora.</p>' +
+  '<p style="margin-top:12px;color:#8C96A4">Maringá-PR · Dynamics Metalurgica Ltda · Termo versão 1.1</p>';
 document.getElementById('termoTxt').innerHTML = TERMO;
-function verTermo(e){ if (e) e.preventDefault(); document.getElementById('mdl').classList.add('on'); }
-function fecharTermo(){ document.getElementById('mdl').classList.remove('on'); }
-function aceitarTermo(){ document.getElementById('lgT').checked = true; fecharTermo(); }
+var PEND = null;   // usuário e senha aguardando a assinatura do termo
+function verTermo(){
+  var t = document.getElementById('termoTxt'); t.scrollTop = 0;
+  ['tNome','tCpf','tOk','tBt'].forEach(function(i){ document.getElementById(i).disabled = true; });
+  document.getElementById('tOk').checked = false; document.getElementById('tErr').textContent = '';
+  var av = document.getElementById('mdlAv'); av.className = 'mdl-av'; av.textContent = 'Role o termo até o fim para liberar a assinatura.';
+  document.getElementById('mdl').classList.add('on');
+  setTimeout(function(){ rolouTermo(t); }, 50);
+}
+function fecharTermo(){ document.getElementById('mdl').classList.remove('on'); PEND = null; }
+function rolouTermo(t){
+  if (t.scrollTop + t.clientHeight < t.scrollHeight - 8) return;
+  if (!document.getElementById('tNome').disabled) return;
+  ['tNome','tCpf','tOk'].forEach(function(i){ document.getElementById(i).disabled = false; });
+  var av = document.getElementById('mdlAv'); av.className = 'mdl-av ok'; av.textContent = 'Termo lido. Preencha nome completo e CPF para assinar.';
+  document.getElementById('tBt').disabled = false;
+}
+function mascCpf(i){
+  var d = i.value.replace(/\D/g, '').substring(0, 11), o = d;
+  if (d.length > 9) o = d.substring(0,3) + '.' + d.substring(3,6) + '.' + d.substring(6,9) + '-' + d.substring(9);
+  else if (d.length > 6) o = d.substring(0,3) + '.' + d.substring(3,6) + '.' + d.substring(6);
+  else if (d.length > 3) o = d.substring(0,3) + '.' + d.substring(3);
+  i.value = o;
+}
+function cpfOk(c){
+  c = String(c).replace(/\D/g, '');
+  if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false;
+  for (var t = 9; t < 11; t++){ var s = 0; for (var i = 0; i < t; i++) s += +c[i] * (t + 1 - i); if (((s * 10) % 11) % 10 !== +c[t]) return false; }
+  return true;
+}
+function assinarTermo(){
+  var n = document.getElementById('tNome').value.trim().toUpperCase().replace(/\s+/g, ' '), c = document.getElementById('tCpf').value, er = document.getElementById('tErr');
+  if (n.split(' ').length < 2 || n.length < 6){ er.textContent = 'Informe o nome completo.'; return; }
+  if (!cpfOk(c)){ er.textContent = 'CPF inválido.'; return; }
+  if (!document.getElementById('tOk').checked){ er.textContent = 'Marque a confirmação de leitura.'; return; }
+  if (!PEND){ fecharTermo(); return; }
+  var bt = document.getElementById('tBt'); bt.disabled = true; bt.textContent = 'Assinando…';
+  var p = PEND;
+  fazerLogin(p.u, p.s, { nome: n, cpf: c }, function(){ bt.textContent = 'Assinar e entrar'; bt.disabled = false; });
+}
 
 function mostrarLogin(){
   document.getElementById('app').style.display = 'none';
@@ -98,24 +134,33 @@ function mostrarLogin(){
 function entrar(e){
   e.preventDefault();
   var u = document.getElementById('lgU').value.trim().toUpperCase(), s = document.getElementById('lgS').value;
-  var ac = document.getElementById('lgT').checked, er = document.getElementById('lgE'), bt = document.getElementById('lgB');
+  var er = document.getElementById('lgE');
   if (!u || !s){ er.textContent = 'Informe usuário e senha.'; return; }
+  fazerLogin(u, s, null);
+}
+function fazerLogin(u, s, aceite, depois){
+  var er = document.getElementById('lgE'), bt = document.getElementById('lgB');
   bt.disabled = true; bt.textContent = 'Entrando…'; er.textContent = '';
-  srv('login', [u, s, ac], function(r){
-    bt.disabled = false; bt.textContent = 'Entrar';
-    if (!r.ok){ er.textContent = r.msg; if (r.termo) verTermo(); return; }
-    TK = r.token; EU = { u: r.usuario, p: r.perfil, n: r.nome };
+  srv('login', [u, s, aceite], function(r){
+    bt.disabled = false; bt.textContent = 'Entrar'; if (depois) depois();
+    if (!r.ok){
+      if (r.termo){ PEND = { u: u, s: s }; verTermo(); return; }
+      if (aceite){ document.getElementById('tErr').textContent = r.msg; return; }
+      er.textContent = r.msg; return;
+    }
+    document.getElementById('mdl').classList.remove('on'); PEND = null;
+    TK = r.token; EU = { u: r.usuario, n: r.nome, t: r.telas };
     guardar('fvd_tk', TK); guardar('fvd_eu', JSON.stringify(EU));
     document.getElementById('lgS').value = '';
     abrirApp();
-  }, function(m){ bt.disabled = false; bt.textContent = 'Entrar'; er.textContent = 'Falha: ' + m; });
+  }, function(m){ bt.disabled = false; bt.textContent = 'Entrar'; if (depois) depois(); er.textContent = 'Falha: ' + m; });
 }
-function sairApp(){ srv('sair', [TK]); limparSessao(); B = null; mostrarLogin(); }
+function sairApp(){ clearInterval(AUTO_T); AUTO_T = null; srv('sair', [TK]); limparSessao(); B = null; mostrarLogin(); }
 
 function abrirApp(){
   document.getElementById('lgn').style.display = 'none';
   document.getElementById('app').style.display = '';
-  document.getElementById('euNome').innerHTML = '<b>' + esc(EU.n) + '</b>' + (norm(EU.n) === norm(ROT[EU.p]) ? '' : ' · ' + (ROT[EU.p] || ''));
+  document.getElementById('euNome').innerHTML = '<b>' + esc(EU.n) + '</b>';
   document.getElementById('euIni').textContent = iniDe(EU.n);
   document.getElementById('wrap').innerHTML = '<div class="carregando"><div class="sp1"></div>Carregando a base…</div>';
   srv('carregar', [TK], iniciar, function(m){
@@ -131,28 +176,37 @@ function abrirApp(){
 
 /* ============================ arranque ============================ */
 var MESES_D = [];
-function iniciar(d){
+function preparar(d){
   B = d; EU = d.eu;
   B.P.forEach(function(p){ p.me = mesDe(p.dp); p.k = chave(p.dp); p.os = osDe(p.oc); p.bus = norm([p.oc, p.os.replace(/\D/g, ''), p.erp, p.cli, p.rv, p.loc].join(' ')); });
   B.P.sort(function(a, b){ return b.k - a.k || b.v - a.v; });
   var m = {}; B.P.forEach(function(p){ if (p.me) m[p.me] = 1; });
   MESES_D = Object.keys(m).sort().reverse();
+  marcaHora();
+}
+function iniciar(d){
+  preparar(d);
   F.mes = MESES_D[0] || ''; FC.mes = F.mes; AUD.mes = '';
   F.dia = B.P.length ? B.P[0].dp : hojeBr();
+  var a = false; try { a = localStorage.getItem('fvd_auto') === '1'; } catch(e){}
+  document.getElementById('auto').checked = a; autoTroca(a, true);
   montarNav();
-  ir(EU.p === 'orc' ? 'aud' : 'dia');
+  ir(telasDoPerfil()[0][0]);
 }
-function telasDoPerfil(){ return EU.p === 'orc' ? T_ORC : T_DIR.concat(T_ORC); }
+function telasDoPerfil(){ var t = EU.t || []; return T_DIR.concat(T_ORC).filter(function(x){ return t.indexOf(x[0]) >= 0; }); }
 function montarNav(){
   var h = '';
   function bt(x){ return '<button data-s="' + x[0] + '" onclick="ir(\'' + x[0] + '\')">' + x[1] + '</button>'; }
-  if (EU.p !== 'orc') h += '<span class="grp">Diretoria</span>' + T_DIR.map(bt).join('');
-  h += '<span class="grp">Orçamento</span>' + T_ORC.map(bt).join('');
+  var t = EU.t || [];
+  var d = T_DIR.filter(function(x){ return t.indexOf(x[0]) >= 0; }), o = T_ORC.filter(function(x){ return t.indexOf(x[0]) >= 0; });
+  if (d.length) h += '<span class="grp">Diretoria</span>' + d.map(bt).join('');
+  if (o.length) h += '<span class="grp">Orçamento</span>' + o.map(bt).join('');
   document.getElementById('nav').innerHTML = h;
 }
 function ir(id){
-  var ok = telasDoPerfil().some(function(t){ return t[0] === id; });
-  if (!ok) id = telasDoPerfil()[0][0];
+  var tp = telasDoPerfil();
+  if (!tp.length){ document.getElementById('wrap').innerHTML = '<div class="vazio"><b>Nenhuma tela liberada</b></div>'; return; }
+  if (!tp.some(function(t){ return t[0] === id; })) id = tp[0][0];
   TELA = id;
   [].forEach.call(document.querySelectorAll('#nav button'), function(b){ b.classList.toggle('on', b.getAttribute('data-s') === id); });
   var w = document.getElementById('wrap');
@@ -479,7 +533,44 @@ function telaUp(){
     (logs.map(function(r){ return '<tr><td class="num">' + esc(r.dh) + '</td><td><b>' + esc(r.u) + '</b></td><td><span class="bdg ' + (/UPLOAD/.test(r.a) ? 'eq' : /DOWNLOAD|IMPRESS/.test(r.a) ? 'am' : /RECUS|FALHOU/.test(r.a) ? 'ab' : 'nd') + '">' + esc(r.a) + '</span></td><td>' + esc(r.d) + '</td></tr>'; }).join('') || '<tr><td colspan="4">Nenhum registro.</td></tr>') + '</tbody></table></div>';
   return h;
 }
-function recarregar(){ var t = TELA; srv('carregar', [TK], function(d){ var a = AUD.cod; iniciar(d); AUD.cod = a; ir(t); toast('Atualizado.'); }); }
+function recarregar(){ atualizar(false); }
+
+/* ============================ atualização ============================ */
+var T0 = 0, AUTO_T = null, OCUPADO = false;
+function marcaHora(){
+  var h = new Date();
+  document.getElementById('updH').textContent = 'atualizado ' + ('0' + h.getHours()).slice(-2) + ':' + ('0' + h.getMinutes()).slice(-2);
+  document.getElementById('updMs').textContent = 'lida em ' + (T0 ? Date.now() - T0 : (B && B.ms) || 0) + ' ms';
+}
+function atualizar(auto){
+  if (OCUPADO || !TK) return;
+  if (auto && (document.hidden || TELA === 'up' && document.querySelector('.fi:not(.ok):not(.er)'))) return;
+  OCUPADO = true; T0 = Date.now();
+  var rf = document.getElementById('rf'); rf.classList.add('gi');
+  var antes = {}; (B && B.P || []).forEach(function(p){ antes[p.id + '|' + p.rev] = 1; });
+  var y = window.scrollY;
+  srv('carregar', [TK], function(d){
+    OCUPADO = false; rf.classList.remove('gi');
+    preparar(d); T0 = 0;
+    var novos = B.P.filter(function(p){ return !antes[p.id + '|' + p.rev]; });
+    if (F.mes && MESES_D.indexOf(F.mes) < 0) F.mes = MESES_D[0] || '';
+    ir(TELA); window.scrollTo(0, y);
+    if (novos.length && Object.keys(antes).length) {
+      toast(novos.length + ' novo(s) pedido(s) de venda: ' + novos.slice(0, 3).map(function(p){ return (p.os || 'ERP ' + p.erp) + ' ' + p.cli; }).join(' · '));
+      document.title = '(' + novos.length + ') Pedidos de Venda';
+      setTimeout(function(){ document.title = 'Fluxo Venda Dynamics'; }, 60000);
+    } else if (!auto) toast('Atualizado.');
+  }, function(m){ OCUPADO = false; rf.classList.remove('gi'); if (!auto) toast('Falha ao atualizar: ' + m); });
+}
+function autoTroca(v, silencioso){
+  try { localStorage.setItem('fvd_auto', v ? '1' : '0'); } catch(e){}
+  clearInterval(AUTO_T); AUTO_T = null;
+  if (v) AUTO_T = setInterval(function(){ atualizar(true); }, 120000);
+  if (!silencioso) toast(v ? 'Atualização automática ligada (a cada 2 min).' : 'Atualização automática desligada.');
+}
+document.addEventListener('visibilitychange', function(){
+  if (!document.hidden && AUTO_T && B) atualizar(true);
+});
 function excelLog(){
   var L = [['data_hora','usuario','acao','detalhe']];
   (B.logs || []).forEach(function(r){ L.push([r.dh, r.u, r.a, r.d]); });
