@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — EXTRATOR DE PEDIDOS DE VENDA
- * Arquivo: Pedidos          Versão: V1.4
+ * Arquivo: Pedidos          Versão: V1.5
  *
  * O QUE FAZ
  *   Lê os PDFs de pedido de venda do ForWood que o Orçamento sobe na
@@ -40,6 +40,16 @@
  *   a tabela só dos itens comparáveis. Todo item sem preço de tabela entrava
  *   como "vendido acima" (ex.: MG MOTOR +11,7%, que era só um item sem
  *   tabela). Agora os dois lados usam apenas os itens com tabela.
+ *
+ * V1.5 — correção crítica da revisão: a busca do pedido anterior comparava a OC
+ *   INTEIRA, com o sufixo da revisão (114.26.258-00 x 114.26.258-03). Como o
+ *   sufixo muda a cada revisão, a nova nunca achava a anterior: entrava como
+ *   pedido novo, a antiga continuava vigente (cartão em dobro) e a aba Revisoes
+ *   não recebia as mudanças. Agora a revisão é casada pela OS sem o sufixo.
+ *   Revisão mais antiga que a vigente entra só como histórico (vigente = NAO).
+ *   Autocorreção: toda execução de processarPedidos acerta os pedidos que já
+ *   entraram em dobro — mantém vigente só a maior revisão e grava na aba
+ *   Revisoes o que mudou entre elas.
  *
  * FUNÇÕES PARA USAR NO EDITOR
  *   configurarPedidos()      cria pastas e abas
@@ -416,6 +426,8 @@ function processarPedidos() {
     var shR = ss.getSheetByName(ABA_REVISOES);
     var agora = Utilities.formatDate(new Date(), PV_FUSO, 'dd/MM/yyyy HH:mm');
 
+    pvCorrigirVigencia_(ss, shP, shI, shR, agora);   // V1.5
+
     var arquivos = [], it = ent.getFiles();
     while (it.hasNext()) arquivos.push(it.next());
     if (!arquivos.length) { Logger.log('Pasta de entrada vazia.'); return; }
@@ -429,7 +441,19 @@ function processarPedidos() {
         if (!r.cab.oc) throw new Error('Não foi possível ler o número do pedido (campo OC).');
         if (!r.itens.length) throw new Error('Nenhum item reconhecido.');
 
+        if (pvJaExiste_(shP, r.cab.oc)) {
+          pvErro_(ss, agora, nome, 'PEDIDO JA PROCESSADO', r.cab.oc + ' já está na base');
+          arq.moveTo(pro); nDup++;
+          continue;
+        }
         var ant = pvPedidoVigente_(shP, r.cab.oc);
+        if (ant && Number(pvRev_(r.cab.revisao)) < Number(ant.revisao)) {
+          r.historico = true;                     // revisão antiga chegando depois da nova
+          pvGravar_(ss, shP, shI, r, nome, agora);
+          pvErro_(ss, agora, nome, 'REVISAO ANTIGA', r.cab.oc + ' gravada só como histórico — a vigente é a revisão ' + ant.revisao);
+          arq.moveTo(pro); n++;
+          continue;
+        }
         if (ant && ant.revisao === pvRev_(r.cab.revisao)) {
           pvErro_(ss, agora, nome, 'PEDIDO JA PROCESSADO',
                   r.cab.oc + ' revisão ' + r.cab.revisao + ' já está na base');
@@ -463,11 +487,20 @@ function processarPedidos() {
 }
 
 /** Devolve o pedido vigente daquele OC, ou null. */
+function pvJaExiste_(shP, oc) {
+  if (!oc || shP.getLastRow() < 2) return false;
+  var v = shP.getRange(2, 2, shP.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < v.length; i++) if (String(v[i][0]).trim() === oc) return true;
+  return false;
+}
+function pvOs_(oc) { return String(oc || '').trim().replace(/-\d{1,2}$/, ''); }
+
 function pvPedidoVigente_(shP, oc) {
   if (shP.getLastRow() < 2) return null;
   var v = shP.getRange(2, 1, shP.getLastRow() - 1, COLS_PEDIDOS.length).getValues();
+  var os = pvOs_(oc);
   for (var i = v.length - 1; i >= 0; i--) {
-    if (String(v[i][1]).trim() === oc && String(v[i][2]).trim() === 'SIM') {
+    if (pvOs_(v[i][1]) === os && String(v[i][2]).trim() === 'SIM') {
       return { linha: i + 2, id_pedido: v[i][0], oc: v[i][1], revisao: pvRev_(v[i][7]),
                data_entrega: v[i][10], total_cheio: v[i][18] };
     }
@@ -479,13 +512,13 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
   var h = r.cab;
 
   // a revisão anterior deixa de ser vigente, mas continua na base
-  if (shP.getLastRow() >= 2) {
+  if (!r.historico && shP.getLastRow() >= 2) {
     var n = shP.getLastRow() - 1;
     var ocs = shP.getRange(2, 2, n, 1).getValues();
     var vig = shP.getRange(2, 3, n, 1).getValues();
     var mudou = false;
     for (var i = 0; i < n; i++) {
-      if (String(ocs[i][0]).trim() === h.oc && String(vig[i][0]).trim() === 'SIM') {
+      if (pvOs_(ocs[i][0]) === pvOs_(h.oc) && String(vig[i][0]).trim() === 'SIM') {
         vig[i][0] = 'NAO'; mudou = true;
       }
     }
@@ -520,7 +553,7 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
   var desvio = comRef ? Math.round((totComp - totTab) * 100) / 100 : '';
   var desvioPct = (comRef && totTab) ? Math.round((totComp - totTab) / totTab * 10000) / 100 : '';
 
-  shP.appendRow([idPedido, h.oc, 'SIM', h.cli_pailon, nomeCli, h.ano, h.sequencial, h.revisao,
+  shP.appendRow([idPedido, h.oc, r.historico ? 'NAO' : 'SIM', h.cli_pailon, nomeCli, h.ano, h.sequencial, h.revisao,
     h.numero, h.data_pedido, h.data_entrega, h.cond_pagto, h.observacao, h.revenda, h.cidade, h.uf,
     h.qtd_itens, h.total_40, h.total_cheio, comRef ? totTab : '', desvio, desvioPct,
     h.confere_valor, h.confere_qtde, h.status, h.oc_divergente, nome, agora]);
@@ -587,6 +620,42 @@ function pvDiff_(shI, ant, r) {
     difs.push(['COMERCIAL', 'TOTAL DO PEDIDO ALTERADO', '', '', ant.total_cheio, r.cab.total_cheio]);
   }
   return difs;
+}
+
+/** V1.5 — acerta OS com mais de uma revisão vigente (entradas feitas antes da
+    correção): fica vigente só a maior revisão e a aba Revisoes recebe o que mudou. */
+function pvCorrigirVigencia_(ss, shP, shI, shR, agora) {
+  if (shP.getLastRow() < 3) return 0;
+  var n = shP.getLastRow() - 1;
+  var v = shP.getRange(2, 1, n, COLS_PEDIDOS.length).getValues();
+  var grupos = {};
+  v.forEach(function (r, i) {
+    if (String(r[2]).trim() !== 'SIM' || !String(r[1]).trim()) return;
+    (grupos[pvOs_(r[1])] = grupos[pvOs_(r[1])] || []).push(i);
+  });
+  var vig = v.map(function (r) { return [r[2]]; }), feitos = 0, itens = null;
+  Object.keys(grupos).forEach(function (os) {
+    var l = grupos[os];
+    if (l.length < 2) return;
+    l.sort(function (a, b) { return Number(pvRev_(v[a][7])) - Number(pvRev_(v[b][7])) || a - b; });
+    var nova = l[l.length - 1], ant = l[l.length - 2];
+    l.slice(0, -1).forEach(function (i) { vig[i][0] = 'NAO'; });
+    if (pvRev_(v[ant][7]) !== pvRev_(v[nova][7])) {
+      if (!itens) itens = shI.getLastRow() > 1 ? shI.getRange(2, 1, shI.getLastRow() - 1, COLS_ITENS.length).getValues() : [];
+      var rn = v[nova], its = itens.filter(function (x) {
+        return String(x[2]).trim() === String(rn[1]).trim() && pvRev_(x[3]) === pvRev_(rn[7]);
+      }).map(function (x) { return { codigo: String(x[5]).trim(), descricao: x[6], qtde: Number(x[8]) || 0, preco_cheio: Number(x[10]) || 0 }; });
+      var r = { cab: { oc: String(rn[1]).trim(), revisao: pvRev_(rn[7]), data_entrega: rn[10], total_cheio: Number(rn[18]) || 0 }, itens: its };
+      var a = { oc: String(v[ant][1]).trim(), revisao: pvRev_(v[ant][7]), data_entrega: v[ant][10], total_cheio: v[ant][18] };
+      pvGravarRevisoes_(shR, agora, r.cab, a.revisao, pvDiff_(shI, a, r));
+    }
+    feitos++;
+  });
+  if (feitos) {
+    shP.getRange(2, 3, n, 1).setValues(vig);
+    Logger.log(feitos + ' OS com revisão em dobro corrigida(s).');
+  }
+  return feitos;
 }
 
 function pvGravarRevisoes_(shR, agora, cab, revDe, difs) {
