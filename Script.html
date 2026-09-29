@@ -240,7 +240,7 @@ function cartao(p, comCk){
         '<div class="pc-os"><span>ORDEM DE SERVIÇO</span><b class="' + (p.os ? '' : 'sm') + '">' + esc(os) + '</b>' +
         '<i class="rev' + (+p.rev > 0 ? ' r1' : '') + '">REV ' + esc(p.rev) + '</i></div></div>' +
       '<div class="pc-c">' + esc(p.cli) + (p.rv ? ' <em>· ' + esc(p.rv) + '</em>' : '') + (p.loc ? ' <em>· ' + esc(p.loc) + '</em>' : '') + '</div>' +
-      '<div class="pc-m">ERP ' + esc(p.erp) + ' · ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + '</div>' +
+      '<div class="pc-m">ERP ' + esc(p.erp) + ' · ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + (p.dc ? ' · <span class="dcg' + (+p.rev > 0 ? ' rv' : '') + '">' + (+p.rev > 0 ? 'revisão carregada em ' : 'carregado em ') + esc(String(p.dc).substring(0, 16)) + '</span>' : '') + '</div>' +
       '<div class="pc-d"><div><span>Data do pedido</span><b>' + esc(p.dp) + '</b><em>' + semana(p.dp) + '</em></div>' +
         '<div><span>Entrega</span><b>' + esc(p.ent) + '</b><em class="' + pz.c + '">' + pz.t + '</em></div></div>' +
       '<div class="pc-v"><div class="dy"><span>Valor cheio</span><b>R$ ' + rs(p.v) + '</b></div>' +
