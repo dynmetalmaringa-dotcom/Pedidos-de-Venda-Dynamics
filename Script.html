@@ -3,7 +3,7 @@
    FLUXO VENDA DYNAMICS · Script V2.0
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
-var F = { mes: '', dia: '', q: '', todo: false };          // filtros da Diretoria
+var F = { mes: '', dia: '', q: '', todo: false, rev: false };          // filtros da Diretoria
 var FC = { mes: '', q: '' };                               // filtros de Clientes
 var SEL = {};                                              // cartões selecionados
 var AUD = { cod: '', mes: '', q: '' };                     // auditoria
@@ -37,8 +37,8 @@ function prazo(s){
   return { t: 'há ' + (-n) + ' dia' + (n < -1 ? 's' : ''), c: 'pr' };
 }
 function diasRev(s){ var n = diasAte(s); return n === null ? null : Math.max(0, -n); }
-function clDias(n){ return n === null ? 'd3' : n > 180 ? 'd3' : n > 90 ? 'd2' : 'd1'; }
-function txDias(n){ return n === null ? 'sem data' : n + ' dia' + (n === 1 ? '' : 's'); }
+function clDias(n){ return n == null ? 'd3' : n > 180 ? 'd3' : n > 90 ? 'd2' : 'd1'; }
+function txDias(n){ return n == null ? 'sem data' : n + ' dia' + (n === 1 ? '' : 's'); }
 function norm(s){ return String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 function osDe(oc){ return String(oc || '').replace(/-\d{2}$/, ''); }
 var CORES = ['#0B63B5','#B0101A','#1C7A48','#A55A1C','#5B45A0','#0F7A8C','#7A1420','#3E4855','#8A6D00','#0B3C7D'];
@@ -230,7 +230,8 @@ function kDesvio(s){ return s.tab ? '<b class="' + (s.d > 0.005 ? 'ac' : s.d < -
 /* ============================ cartão ============================ */
 function cartao(p, comCk){
   var pz = prazo(p.ent), os = p.os || ('ERP ' + p.erp);
-  var itens = p.itens.map(itemLinha).join('');
+  var mud = {}; if (p.alt) p.alt.ch.forEach(function(c){ if (c.c) mud[c.c] = c.t; });
+  var itens = p.itens.map(function(x){ return itemLinha(x, mud[x.c]); }).join('');
   var n = p.itens.length;
   return '<div class="pc' + (SEL[p.id] ? ' sel' : '') + '" id="pc_' + esc(p.id) + '">' +
     '<div class="pc-l">' +
@@ -242,21 +243,33 @@ function cartao(p, comCk){
       '<div class="pc-m">ERP ' + esc(p.erp) + ' · ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + '</div>' +
       '<div class="pc-d"><div><span>Data do pedido</span><b>' + esc(p.dp) + '</b><em>' + semana(p.dp) + '</em></div>' +
         '<div><span>Entrega</span><b>' + esc(p.ent) + '</b><em class="' + pz.c + '">' + pz.t + '</em></div></div>' +
-      '<div class="pc-v"><div><span>Valor cheio</span><b>R$ ' + rs(p.v) + '</b></div>' +
-        '<div class="dy"><span>Valor Dynamics 40%</span><b>R$ ' + rs(p.v40) + '</b></div></div>' +
+      '<div class="pc-v"><div class="dy"><span>Valor cheio</span><b>R$ ' + rs(p.v) + '</b></div>' +
+        '<div><span>Valor Dynamics 40%</span><b>R$ ' + rs(p.v40) + '</b></div></div>' +
+      blocoRev(p) +
       '<div class="pc-dv">Contra tabela ' + bdgDesvio(p) + (p.ct && p.ct < n ? '<span>' + p.ct + ' de ' + n + ' com tabela</span>' : '') + '</div>' +
     '</div>' +
     '<button class="pc-tg" onclick="this.parentNode.classList.toggle(\'ab\')">Ver ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + '</button>' +
     '<div class="pc-r"><table class="it"><thead><tr><th>Código</th><th>Descrição</th><th class="r">Qtde × unit.</th><th class="r">Total</th><th>Contra tabela</th><th class="r">Preço tabela</th><th class="r">Diferença</th></tr></thead><tbody>' +
       (itens || '<tr><td colspan="7">Sem itens lidos.</td></tr>') + '</tbody></table></div></div>';
 }
-function itemLinha(x){
+function blocoRev(p){
+  if (!p.alt) return '';
+  var a = p.alt, rec = a.dias !== null && a.dias <= 7;
+  var sem = a.ch.length === 1 && /SEM MUDANCA/.test(a.ch[0].t);
+  return '<div class="rvb' + (rec ? ' novo' : '') + '"><b>' + (rec ? 'ALTERADO · ' : '') + 'REV ' + esc(a.de) + ' → ' + esc(a.para) + '</b><span>' + esc(a.dh) + (sem ? ' · sem mudança de item' : ' · ' + a.ch.length + ' mudança(s)') + '</span>' +
+    (sem ? '' : '<ul>' + a.ch.slice(0, 8).map(function(c){
+      var o = c.t.toLowerCase().replace('alterado', 'alterada');
+      return '<li><em>' + esc(o) + '</em>' + (c.c ? ' <code>' + esc(c.c) + '</code>' : '') + (c.de !== '' || c.pa !== '' ? ' · ' + esc(fmtRv(c.de)) + ' → <b>' + esc(fmtRv(c.pa)) + '</b>' : '') + '</li>'; }).join('') +
+      (a.ch.length > 8 ? '<li>… e mais ' + (a.ch.length - 8) + '</li>' : '') + '</ul>') + '</div>';
+}
+function fmtRv(v){ return typeof v === 'number' ? (v % 1 ? rs2(v) : String(v)) : String(v == null ? '' : v); }
+function itemLinha(x, mud){
   var c, bd, dfv = 0;
   if (x.tb > 0){
     dfv = x.t - x.tb * x.q; c = clsDif(dfv, 1);
     bd = c === 'eq' ? '<span class="bdg eq">igual</span>' : '<span class="bdg ' + c + '">' + sn(dfv) + pc(Math.abs((x.u - x.tb) / x.tb * 100)) + '%</span>';
   } else { c = 'nd'; bd = '<span class="bdg nd">' + (/DUPLIC/.test(x.st) ? 'duplicado na base' : 'sem tabela') + '</span>'; }
-  return '<tr><td class="cd ' + c + '">' + esc(x.c) + '</td><td class="ds">' + esc(x.d) + '</td>' +
+  return '<tr' + (mud ? ' class="mud"' : '') + '><td class="cd ' + c + '">' + esc(x.c) + '</td><td class="ds">' + (mud ? '<i class="tg">' + (/INCLU/.test(mud) ? 'novo' : 'alterado') + '</i> ' : '') + esc(x.d) + '</td>' +
     '<td class="r num">' + qt(x.q) + ' ' + esc(x.un) + ' × ' + rs2(x.u) + '</td>' +
     '<td class="r num"><b>' + rs2(x.t) + '</b></td><td>' + bd + '</td>' +
     '<td class="r num">' + (x.tb > 0 ? rs2(x.tb) + '<small>' + (/^\d/.test(x.dt) ? 'rev ' + esc(x.dt) : 'sem data') + '</small>' : '—') + '</td>' +
@@ -289,14 +302,16 @@ var DIA_HTML = '';
 function telaDia(){
   var lista, tit;
   var base = F.mes ? B.P.filter(function(p){ return p.me === F.mes; }) : B.P;
-  if (F.q){ lista = buscar(base, F.q); tit = 'Busca “' + esc(F.q) + '” em ' + mesNome(F.mes) + ' · ' + lista.length + ' pedido(s)'; }
+  if (F.rev){ lista = B.P.filter(function(p){ return p.alt && p.alt.dias !== null && p.alt.dias <= 7; }); tit = 'Pedidos alterados por revisão nos últimos 7 dias · ' + lista.length; }
+  else if (F.q){ lista = buscar(base, F.q); tit = 'Busca “' + esc(F.q) + '” em ' + mesNome(F.mes) + ' · ' + lista.length + ' pedido(s)'; }
   else if (F.todo){ lista = base; tit = 'Todos os dias de ' + mesNome(F.mes); }
   else { lista = B.P.filter(function(p){ return p.dp === F.dia; }); tit = ''; }
   var h = '<div class="fl"><span class="lb">Dia</span><button class="btn sq" onclick="passaDia(-1)" title="Dia anterior">‹</button>' +
     '<input type="date" value="' + isoDe(F.dia) + '" onchange="F.dia=deIso(this.value);F.q=\'\';F.todo=false;F.mes=mesDe(F.dia)||F.mes;ir(\'dia\')">' +
     '<button class="btn sq" onclick="passaDia(1)" title="Próximo dia">›</button>' +
     '<span class="lb">Mês</span>' + selMes(F.mes, 'fMes', true) +
-    '<button class="btn' + (F.todo ? ' on' : '') + '" onclick="F.todo=!F.todo;F.q=\'\';ir(\'dia\')">Mês inteiro</button>' +
+    '<button class="btn' + (F.todo ? ' on' : '') + '" onclick="F.todo=!F.todo;F.q=\'\';F.rev=false;ir(\'dia\')">Mês inteiro</button>' +
+    '<button class="btn' + (F.rev ? ' on' : '') + '" onclick="F.rev=!F.rev;F.q=\'\';ir(\'dia\')">Revisados' + (nRev() ? ' <span class="pill">' + nRev() + '</span>' : '') + '</button>' +
     '<input type="search" placeholder="Buscar OS ou cliente" value="' + esc(F.q) + '" onkeydown="if(event.key===\'Enter\'){F.q=this.value;ir(\'dia\')}" onsearch="F.q=this.value;ir(\'dia\')">' +
     '<button class="btn red" onclick="imprimirDia()">PDF</button><button class="btn" onclick="excelPedidos(DIA_L,\'pedidos\')">Excel</button></div>';
   window.DIA_L = lista;
@@ -311,6 +326,7 @@ function telaDia(){
   if (!tit) h += emBlocos(lista); else h += emBlocos(lista);
   return h;
 }
+function nRev(){ return B.P.filter(function(p){ return p.alt && p.alt.dias !== null && p.alt.dias <= 7; }).length; }
 function fMes(v){ F.mes = v; if (TELA === 'dia' && !F.q) F.todo = true; ir(TELA); }
 function vizinhos(d){
   var k = chave(d), ds = {}; B.P.forEach(function(p){ ds[p.dp] = p.k; });
@@ -346,26 +362,58 @@ function telaMes(){
     kp('Contra tabela', (s.tab ? sn(s.d) + 'R$ ' + rs(s.d) : '—'), s.d > 0.005 ? 'ac' : s.d < -0.005 ? 'ab' : '', s.tab ? sn(s.d) + pc(Math.abs(s.d / s.tab * 100)) + '% nos itens com tabela' : '') +
     kp('Itens sem tabela', sit, '', 'acima R$ ' + rs(acima) + ' · abaixo R$ ' + rs(abaixo)) + '</div>';
 
-  /* por dia */
-  var g = {}; base.forEach(function(p){ g[p.dp] = (g[p.dp] || 0) + p.v; });
-  var dias = Object.keys(g).sort(function(a, b){ return chave(a) - chave(b); });
-  var mx = Math.max.apply(null, dias.map(function(d){ return g[d]; }).concat([1]));
-  var bars = dias.map(function(d){ return '<div class="b" title="' + d + ' · R$ ' + rs(g[d]) + '" onclick="F.dia=\'' + d + '\';F.q=\'\';F.todo=false;ir(\'dia\')"><i style="height:' + Math.max(2, g[d] / mx * 100) + '%"></i><span>' + d.substring(0, 2) + '</span></div>'; }).join('');
-  /* carteira por mês de entrega */
-  var ct = {}; B.P.forEach(function(p){ var m = mesDe(p.ent); if (m){ ct[m] = ct[m] || { n: 0, v: 0 }; ct[m].n++; ct[m].v += p.v; } });
-  var cm = Object.keys(ct).sort(), cmx = Math.max.apply(null, cm.map(function(m){ return ct[m].v; }).concat([1]));
-  /* clientes */
+  /* gráfico: mês escolhido = por dia · todos os meses = por mês */
+  var g = {}, ch = [], titG;
+  if (F.mes){
+    base.forEach(function(p){ g[p.dp] = (g[p.dp] || 0) + p.v; });
+    ch = Object.keys(g).sort(function(a, b){ return chave(a) - chave(b); }).map(function(d){
+      return { k: d, r: d.substring(0, 2), v: g[d], go: "F.dia='" + d + "';F.q='';F.todo=false;ir('dia')" }; });
+    titG = 'Vendido por dia do pedido · ' + mesNome(F.mes);
+  } else {
+    base.forEach(function(p){ if (p.me) g[p.me] = (g[p.me] || 0) + p.v; });
+    ch = Object.keys(g).sort().map(function(m){
+      var p = m.split('-'); return { k: m, r: MESES[+p[1] - 1].substring(0, 3) + '/' + p[0].substring(2), v: g[m], go: "fMes('" + m + "')" }; });
+    titG = 'Vendido por mês do pedido · todos os meses';
+  }
+  var mx = Math.max.apply(null, ch.map(function(c){ return c.v; }).concat([1]));
+  var bars = ch.map(function(c){ return '<div class="b" title="' + c.k + ' · R$ ' + rs(c.v) + '" onclick="' + c.go + '"><em>' + curto(c.v) + '</em><i style="height:' + Math.max(2, c.v / mx * 100) + '%"></i><span>' + c.r + '</span></div>'; }).join('');
+  h += '<div class="cx"><h3>' + titG + '<span class="sp"></span><span class="hn">toque na barra para abrir</span></h3><div class="bars' + (ch.length > 24 ? ' dens' : '') + '">' + (bars || '<p>Sem pedidos.</p>') + '</div></div>';
+
+  /* contra a tabela por cliente */
+  var dc = {};
+  base.forEach(function(p){
+    var k = p.cli; dc[k] = dc[k] || { cli: p.cli, cd: p.cd, comp: 0, tab: 0, ac: 0, ab: 0, nAc: 0, nAb: 0, st: 0 };
+    p.itens.forEach(function(x){
+      if (!(x.tb > 0)){ dc[k].st++; return; }
+      var d = x.t - x.tb * x.q; dc[k].comp += x.t; dc[k].tab += x.tb * x.q;
+      if (d > 0.005){ dc[k].ac += d; dc[k].nAc++; } else if (d < -0.005){ dc[k].ab += d; dc[k].nAb++; }
+    });
+  });
+  var dcl = Object.keys(dc).map(function(k){ return dc[k]; }).filter(function(c){ return c.tab > 0; })
+    .sort(function(a, b){ return (a.comp - a.tab) - (b.comp - b.tab); });
+  var tDif = '<div class="tbw alto"><table class="tb"><thead><tr><th>Cliente</th><th class="r">Vendido</th><th class="r">Tabela</th><th class="r">Diferença</th><th class="r">%</th><th class="r">Acima</th><th class="r">Abaixo</th><th class="r">S/ tab.</th></tr></thead><tbody>' +
+    (dcl.map(function(c){ var d = c.comp - c.tab, cl = d > 0.005 ? 'tx-ac' : d < -0.005 ? 'tx-ab' : '';
+      return '<tr class="lk" onclick="FC.q=\'' + esc(c.cli).replace(/'/g, '') + '\';FC.mes=F.mes;ir(\'cli\')"><td><b>' + esc(c.cli) + '</b></td><td class="r num">' + rs(c.comp) + '</td><td class="r num">' + rs(c.tab) + '</td><td class="r num ' + cl + '"><b>' + (c.tab ? sn(d) + rs(d) : '—') + '</b></td><td class="r num ' + cl + '">' + (c.tab ? sn(d) + pc(Math.abs(d / c.tab * 100)) + '%' : '—') + '</td><td class="r num tx-ac">' + (c.nAc || '') + '</td><td class="r num tx-ab">' + (c.nAb || '') + '</td><td class="r num">' + (c.st || '') + '</td></tr>'; }).join('') || '<tr><td colspan="8">Sem itens com tabela.</td></tr>') +
+    '</tbody><tfoot><tr><td><b>Total</b>' + (Object.keys(dc).length - dcl.length ? '<br><small>' + (Object.keys(dc).length - dcl.length) + ' cliente(s) sem tabela</small>' : '') + '</td><td class="r num"><b>' + rs(s.comp) + '</b></td><td class="r num"><b>' + rs(s.tab) + '</b></td><td class="r num ' + (s.d > 0.005 ? 'tx-ac' : s.d < -0.005 ? 'tx-ab' : '') + '"><b>' + (s.tab ? sn(s.d) + rs(s.d) : '—') + '</b></td><td class="r num"><b>' + (s.tab ? sn(s.d) + pc(Math.abs(s.d / s.tab * 100)) + '%' : '—') + '</b></td><td class="r num tx-ac">acima R$ ' + rs(acima) + '</td><td class="r num tx-ab">abaixo R$ ' + rs(abaixo) + '</td><td class="r num">' + sit + '</td></tr></tfoot></table></div>';
+
+  /* carteira por mês de entrega (pedidos do filtro) */
+  var ct = {}; base.forEach(function(p){ var m = mesDe(p.ent); if (m){ ct[m] = ct[m] || { n: 0, v: 0 }; ct[m].n++; ct[m].v += p.v; } });
+  var cm = Object.keys(ct).sort(), cmx = Math.max.apply(null, cm.map(function(m){ return ct[m].v; }).concat([1])), hoje = mesDe(hojeBr());
+  var carteira = '<div class="lst">' + cm.map(function(m){ return '<div class="lin' + (m < hoje ? ' pas' : '') + '"><span class="n">' + mesNome(m) + ' · ' + ct[m].n + ' ped.</span><span class="g"><i style="width:' + (ct[m].v / cmx * 100) + '%"></i></span><b class="num">R$ ' + rs(ct[m].v) + '</b></div>'; }).join('') + '</div>';
+  h += '<div class="m2 ali"><div class="cx"><h3>Diferença de venda contra a tabela, por cliente<span class="sp"></span><span class="hn">só itens com preço de tabela</span></h3>' + tDif + '</div>' +
+    '<div class="cx"><h3>Carteira por mês de entrega<span class="sp"></span><span class="hn">cinza = entrega já vencida</span></h3>' + carteira + '</div></div>';
+
+  /* pedidos + clientes */
   var cl = {}; base.forEach(function(p){ var k = p.cli; cl[k] = cl[k] || { cli: p.cli, cd: p.cd, v: 0, n: 0 }; cl[k].v += p.v; cl[k].n++; });
-  var cls = Object.keys(cl).map(function(k){ return cl[k]; }).sort(function(a, b){ return b.v - a.v; }).slice(0, 10);
+  var cls = Object.keys(cl).map(function(k){ return cl[k]; }).sort(function(a, b){ return b.v - a.v; }).slice(0, 12);
   var cmx2 = cls.length ? cls[0].v : 1;
-  h += '<div class="m2"><div class="cx"><h3>Vendido por dia do pedido<span class="sp"></span><span style="font-weight:500;text-transform:none;letter-spacing:0">toque na barra para abrir o dia</span></h3><div class="bars">' + (bars || '<p>Sem pedidos.</p>') + '</div></div>' +
-    '<div class="cx"><h3>Carteira por mês de entrega</h3>' + cm.map(function(m){ return '<div class="lin"><span class="n">' + mesNome(m) + ' · ' + ct[m].n + ' ped.</span><span class="g"><i style="width:' + (ct[m].v / cmx * 100) + '%"></i></span><b class="num">R$ ' + rs(ct[m].v) + '</b></div>'; }).join('') + '</div></div>';
-  h += '<div class="m2"><div class="cx"><h3>Pedidos ' + (F.q ? '· busca “' + esc(F.q) + '”' : '') + '<span class="sp"></span>' + lista.length + '</h3><div class="tbw alto"><table class="tb"><thead><tr><th>Data</th><th>OS</th><th>Cliente</th><th>Entrega</th><th class="r">Cheio</th><th class="r">Dynamics</th><th>Contra tabela</th></tr></thead><tbody>' +
-    lista.map(function(p){ return '<tr class="lk" onclick="F.dia=\'' + p.dp + '\';F.q=\'' + esc(p.os || p.erp) + '\';F.mes=\'' + p.me + '\';ir(\'dia\')"><td class="num">' + p.dp + '</td><td class="cd">' + esc(p.os || 'ERP ' + p.erp) + '</td><td><b>' + esc(p.cli) + '</b><br><small style="color:#8C96A4">' + esc(p.rv) + '</small></td><td class="num">' + p.ent + '</td><td class="r num">' + rs(p.v) + '</td><td class="r num">' + rs(p.v40) + '</td><td>' + bdgDesvio(p) + '</td></tr>'; }).join('') +
+  h += '<div class="m2 ali"><div class="cx"><h3>Pedidos ' + (F.q ? '· busca “' + esc(F.q) + '”' : '') + '<span class="sp"></span>' + lista.length + '</h3><div class="tbw alto"><table class="tb"><thead><tr><th>Data</th><th>OS</th><th>Cliente</th><th>Entrega</th><th class="r">Valor cheio</th><th class="r">Dynamics</th><th>Contra tabela</th></tr></thead><tbody>' +
+    lista.map(function(p){ return '<tr class="lk" onclick="F.dia=\'' + p.dp + '\';F.q=\'' + esc(p.os || p.erp) + '\';F.mes=\'' + p.me + '\';ir(\'dia\')"><td class="num">' + p.dp + '</td><td class="cd">' + esc(p.os || 'ERP ' + p.erp) + '</td><td><b>' + esc(p.cli) + '</b><br><small style="color:#8C96A4">' + esc(p.rv) + '</small></td><td class="num">' + p.ent + '</td><td class="r num"><b>' + rs(p.v) + '</b></td><td class="r num">' + rs(p.v40) + '</td><td>' + bdgDesvio(p) + '</td></tr>'; }).join('') +
     '</tbody></table></div></div>' +
-    '<div class="cx"><h3>Maiores clientes</h3>' + cls.map(function(c){ return '<div class="lin">' + marca(c.cd, c.cli) + '<span class="n">' + esc(c.cli) + ' · ' + c.n + '</span><span class="g"><i style="width:' + (c.v / cmx2 * 100) + '%"></i></span><b class="num">R$ ' + rs(c.v) + '</b></div>'; }).join('') + '</div></div>';
+    '<div class="cx"><h3>Maiores clientes</h3><div class="lst">' + cls.map(function(c){ return '<div class="lin">' + marca(c.cd, c.cli) + '<span class="n">' + esc(c.cli) + ' · ' + c.n + '</span><span class="g"><i style="width:' + (c.v / cmx2 * 100) + '%"></i></span><b class="num">R$ ' + rs(c.v) + '</b></div>'; }).join('') + '</div></div></div>';
   return h;
 }
+function curto(v){ v = Math.abs(v); return v >= 1e6 ? (v / 1e6).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' mi' : v >= 1e3 ? Math.round(v / 1e3) + ' mil' : Math.round(v); }
 function kp(l, v, c, s){ return '<div class="kp"><div class="kp-l">' + l + '</div><div class="kp-v ' + (c || '') + '">' + v + '</div>' + (s ? '<div class="kp-s">' + s + '</div>' : '') + '</div>'; }
 function imprimirMes(){
   if (!MES_L.length){ toast('Nada para imprimir.'); return; }
@@ -384,6 +432,7 @@ function telaCli(){
   var h = '<div class="fl"><span class="lb">Mês</span>' + selMes(FC.mes, 'fcMes', true) +
     '<input type="search" placeholder="Buscar cliente ou OS" value="' + esc(FC.q) + '" onkeydown="if(event.key===\'Enter\'){FC.q=this.value;ir(\'cli\')}" onsearch="FC.q=this.value;ir(\'cli\')">' +
     '<span class="gap"></span><span class="lb">Selecionados: <b id="nSel">' + Object.keys(SEL).length + '</b></span>' +
+    '<button class="btn" onclick="todosCli(true)">Recolher tudo</button><button class="btn" onclick="todosCli(false)">Expandir tudo</button>' +
     '<button class="btn" onclick="SEL={};ir(\'cli\')">Limpar</button>' +
     '<button class="btn red" onclick="imprimirCli(true)">PDF selecionados</button>' +
     '<button class="btn dk" onclick="imprimirCli(false)">PDF da tela</button>' +
@@ -392,7 +441,7 @@ function telaCli(){
   h += CLI_G.map(function(c, i){
     var s = c.s, id = 'cg' + i;
     var todos = c.l.every(function(p){ return SEL[p.id]; });
-    return '<div class="cg' + (FECH[c.k] ? ' fe' : '') + '" id="' + id + '"><div class="cg-h" onclick="togCli(' + i + ',event)">' +
+    return '<div class="cg' + (fechado(c.k) ? ' fe' : '') + '" id="' + id + '"><div class="cg-h" onclick="togCli(' + i + ',event)">' +
       '<input type="checkbox" title="Selecionar todos deste cliente" ' + (todos ? 'checked' : '') + ' onclick="marcarCli(' + i + ',this.checked)">' +
       marca(c.cd, c.cli) +
       '<div class="cg-n">' + esc(c.cli) + '<small>' + s.n + ' pedido' + (s.n > 1 ? 's' : '') + ' · ' + s.it + ' itens · ' + mesNome(FC.mes) + '</small></div>' +
@@ -401,7 +450,9 @@ function telaCli(){
   }).join('');
   return h;
 }
-function togCli(i, e){ if (e.target.tagName === 'INPUT') return; var k = CLI_G[i].k; FECH[k] = !FECH[k]; document.getElementById('cg' + i).classList.toggle('fe', FECH[k]); }
+function fechado(k){ return FECH[k] === undefined ? !(FC.q || CLI_G.length <= 2) : FECH[k]; }
+function togCli(i, e){ if (e.target.tagName === 'INPUT') return; var k = CLI_G[i].k; FECH[k] = !fechado(k); document.getElementById('cg' + i).classList.toggle('fe', FECH[k]); }
+function todosCli(f){ CLI_G.forEach(function(c, i){ FECH[c.k] = f; var e = document.getElementById('cg' + i); if (e) e.classList.toggle('fe', f); }); }
 function fcMes(v){ FC.mes = v; ir('cli'); }
 function marcarCli(i, v){ CLI_G[i].l.forEach(function(p){ marcar(p.id, v); var e = document.querySelector('#pc_' + CSS.escape(p.id) + ' .pc-ck'); if (e) e.checked = v; }); }
 function imprimirCli(soSel){
@@ -450,13 +501,17 @@ function telaAud(){
   var h = '<div class="fl"><span class="lb">Pedidos de</span>' + selMes(AUD.mes, 'aMes', true) +
     '<input type="search" placeholder="Buscar cliente" value="' + esc(AUD.q) + '" onkeydown="if(event.key===\'Enter\'){AUD.q=this.value;ir(\'aud\')}" onsearch="AUD.q=this.value;ir(\'aud\')">' +
     (AUD.cod ? '<button class="btn" onclick="AUD.cod=\'\';ir(\'aud\')">‹ Todos os clientes</button>' : '') + '</div>';
+  h += faixaTab();
   if (!AUD.cod){
     var l = cs.filter(function(c){ return !AUD.q || norm(c.cli).indexOf(norm(AUD.q)) >= 0 || c.cod.indexOf(AUD.q) >= 0; });
     h += '<div class="sec">Escolha o cliente <span>divergências de preço nos pedidos, itens vendidos sem tabela, duplicados e sem data na tabela</span></div><div class="ag">' +
       l.map(function(c){
         var t = c.t;
-        return '<button class="ac-c" onclick="AUD.cod=\'' + c.cod + '\';ir(\'aud\')">' + marca(c.cod, c.cli) + '<div><b>' + esc(c.cli) + '</b><small>' + c.cod + ' · ' + (t ? t.it + ' itens na tabela' : 'sem tabela carregada') + '</small>' +
-          '<small>' + (t ? 'revisão mais antiga: ' + txDias(t.dMax) : '') + '</small></div><div class="q' + (c.n ? '' : ' ok') + '">' + c.n + '<small>PENDÊNCIAS</small></div></button>';
+        return '<button class="ac-c" onclick="AUD.cod=\'' + c.cod + '\';ir(\'aud\')">' +
+          '<div class="ac-t">' + marca(c.cod, c.cli) + '<div class="ac-n"><b>' + esc(c.cli) + '</b><small>Código Dyn ' + c.cod + '</small></div></div>' +
+          '<div class="ac-k"><div class="' + (c.n ? 'vm' : 'vd') + '"><b>' + c.n + '</b><span>pendências</span></div>' +
+          '<div><b>' + (t ? t.it : '—') + '</b><span>itens na tabela</span></div>' +
+          '<div><b class="dias ' + (t ? clDias(t.dMax) : '') + '">' + (t ? (t.dMax == null ? 's/ data' : t.dMax + 'd') : '—') + '</b><span>' + (t ? 'revisão + antiga' : 'sem tabela') + '</span></div></div></button>';
       }).join('') + '</div>';
     return h;
   }
@@ -475,6 +530,22 @@ function telaAud(){
   h += '<div class="sec">2 · Vendido sem preço na tabela <span>' + dv.sem.length + ' item(ns) — cadastrar na tabela</span></div>' + tabSem(dv.sem);
   h += '<div class="sec">3 · Tabela completa do cliente <span>' + dv.tab.length + ' item(ns), da revisão mais antiga para a mais nova</span></div>' + tabTab(dv.tab);
   return h;
+}
+function faixaTab(){
+  var s = B.sitTab || {}, c = '';
+  (B.tabelas || []).forEach(function(t){ if (t.carga > c) c = t.carga; });
+  var cg = c ? c.replace(/^(\d{4})-(\d{2})-(\d{2})/, '$3/$2/$1') : '—';
+  return '<div class="ftab"><div><span>Última tabela enviada</span><b>' + (s.up ? esc(s.up.dh.substring(0, 16)) + ' · ' + esc(s.up.u) : '—') + '</b><small>' + (s.up ? esc(s.up.d) : '') + '</small></div>' +
+    '<div><span>Última tabela lida</span><b>' + esc(cg) + '</b><small>' + (s.fila ? s.fila + ' na fila para leitura' : 'fila vazia') + '</small></div>' +
+    '<div><span>Última atualização dos pedidos</span><b>' + (s.rc ? esc(s.rc.dh.substring(0, 16)) + ' · ' + esc(s.rc.quem) : 'nunca') + '</b><small>' + (s.rc ? s.rc.ped + ' pedidos · ' + s.rc.mud + ' item(ns) alterado(s)' : '') + '</small></div>' +
+    '<button class="btn red" id="btAtt" onclick="attTabelas()">Atualizar tabelas de venda</button></div>';
+}
+function attTabelas(){
+  var b = document.getElementById('btAtt'); b.disabled = true; b.textContent = 'Atualizando… (até 1 min)';
+  srv('atualizarTabelasVenda', [TK], function(r){
+    toast(r.msg); if (!r.ok){ b.disabled = false; b.textContent = 'Atualizar tabelas de venda'; return; }
+    atualizar(true);
+  }, function(m){ b.disabled = false; b.textContent = 'Atualizar tabelas de venda'; toast('Falha: ' + m); });
 }
 function aMes(v){ AUD.mes = v; ir('aud'); }
 function tabPreco(l){
@@ -514,11 +585,11 @@ function audExcel(){
 function telaUp(){
   var h = '<div class="up3">' +
     '<div class="drop"><b>Pedido de venda (PDF)</b><p>Um ou vários PDFs do ForWood. Entram na fila e são lidos no próximo processamento.</p><input type="file" accept="application/pdf" multiple onchange="subir(this,\'pedido\')"><div id="st_pedido"></div></div>' +
-    '<div class="drop"><b>Tabela de preço (Excel)</b><p>Tabela corrigida do cliente. Substitui a vigente no próximo processamento.</p><input type="file" accept=".xlsx,.xlsm,.xls" multiple onchange="subir(this,\'tabela\')"><div id="st_tabela"></div></div>' +
+    '<div class="drop"><b>Tabela de preço (Excel)</b><p>Baixe a vigente na lista abaixo (botão Excel), corrija e envie. O arquivo recebe a data e hora do envio no nome e substitui a vigente em até 10 min.</p><input type="file" accept=".xlsx,.xlsm,.xls" multiple onchange="subir(this,\'tabela\')"><div id="st_tabela"></div></div>' +
     '<div class="drop"><b>Logo do cliente</b><p>PNG ou JPG até 45 KB.</p><input type="text" id="lgCod" placeholder="Código Dyn (ex.: 416)" maxlength="3"><input type="text" id="lgCli" placeholder="Nome do cliente"><input type="file" accept="image/png,image/jpeg" onchange="subir(this,\'logo\')"><div id="st_logo"></div></div></div>';
   var tb = (B.tabelas || []).slice().sort(function(a, b){ return (b.dMax || 0) - (a.dMax || 0); });
-  h += '<div class="sec">Tabelas vigentes <span>última carga e tempo sem revisão por cliente</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>Arquivo</th><th>Carga</th><th class="r">Itens</th><th class="r">Sem data</th><th class="r">Duplicados</th><th class="r">Revisão mais recente</th><th class="r">Revisão mais antiga</th></tr></thead><tbody>' +
-    (tb.map(function(t){ return '<tr class="lk" onclick="AUD.cod=\'' + t.cod + '\';ir(\'aud\')"><td><b>' + esc(t.cli) + '</b> <small>' + t.cod + '</small></td><td>' + esc(t.arq) + '</td><td class="num">' + esc(t.carga) + '</td><td class="r num">' + t.it + '</td><td class="r num">' + t.sd + '</td><td class="r num">' + t.dup + '</td><td class="r"><span class="dias ' + clDias(t.dMin) + '">' + txDias(t.dMin) + '</span></td><td class="r"><span class="dias ' + clDias(t.dMax) + '">' + txDias(t.dMax) + '</span></td></tr>'; }).join('') || '<tr><td colspan="8">Nenhuma tabela carregada.</td></tr>') + '</tbody></table></div>';
+  h += '<div class="sec">Tabelas vigentes <span>última carga e tempo sem revisão por cliente</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>Arquivo</th><th>Carga</th><th class="r">Itens</th><th class="r">Sem data</th><th class="r">Duplicados</th><th class="r">Revisão mais recente</th><th class="r">Revisão mais antiga</th><th></th></tr></thead><tbody>' +
+    (tb.map(function(t){ return '<tr class="lk" onclick="AUD.cod=\'' + t.cod + '\';ir(\'aud\')"><td><b>' + esc(t.cli) + '</b> <small>' + t.cod + '</small></td><td>' + esc(t.arq) + '</td><td class="num">' + esc(t.carga) + '</td><td class="r num">' + t.it + '</td><td class="r num">' + t.sd + '</td><td class="r num">' + t.dup + '</td><td class="r"><span class="dias ' + clDias(t.dMin) + '">' + txDias(t.dMin) + '</span></td><td class="r"><span class="dias ' + clDias(t.dMax) + '">' + txDias(t.dMax) + '</span></td><td><button class="btn sm" onclick="event.stopPropagation();baixarTab(\'' + t.cod + '\',this)">Excel</button></td></tr>'; }).join('') || '<tr><td colspan="9">Nenhuma tabela carregada.</td></tr>') + '</tbody></table></div>';
   var fl = { tudo: 'Tudo', up: 'Uploads', down: 'Downloads e impressões', ac: 'Acessos' };
   var logs = (B.logs || []).filter(function(r){
     if (LOGF === 'up') return /UPLOAD/.test(r.a);
@@ -571,6 +642,17 @@ function autoTroca(v, silencioso){
 document.addEventListener('visibilitychange', function(){
   if (!document.hidden && AUTO_T && B) atualizar(true);
 });
+function baixarTab(cod, bt){
+  bt.disabled = true; bt.textContent = '…';
+  srv('baixarTabela', [TK, cod], function(r){
+    bt.disabled = false; bt.textContent = 'Excel';
+    if (!r.ok){ toast(r.msg); return; }
+    var b = atob(r.b64), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([u], { type: r.mime })); a.download = r.nome;
+    document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 800);
+    toast('Baixado: ' + r.nome);
+  }, function(m){ bt.disabled = false; bt.textContent = 'Excel'; toast('Falha: ' + m); });
+}
 function excelLog(){
   var L = [['data_hora','usuario','acao','detalhe']];
   (B.logs || []).forEach(function(r){ L.push([r.dh, r.u, r.a, r.d]); });
