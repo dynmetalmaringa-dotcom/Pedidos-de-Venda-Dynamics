@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — EXTRATOR DE TABELAS DE PREÇOS
- * Arquivo: Tabelas          Versão: V1.2
+ * Arquivo: Tabelas          Versão: V1.4
  *
  * O QUE FAZ
  *   Lê os arquivos de tabela de preços que o Orçamento sobe na pasta
@@ -13,6 +13,16 @@
  *   reconhecido, e por isso 100% dos itens da HONDA caíam como "SEM PREÇO
  *   VÁLIDO" mesmo com Código Dyn certo. Padrão de preço ampliado para
  *   aceitar singular e plural, mais exceção explícita pro código 331.
+ *
+ * V1.4 — depois de ler tabela nova, refaz sozinho a comparação de preço de TODOS
+ *   os pedidos vigentes (recompararPedidos_ do arquivo App). A tabela e a
+ *   configuração são lidas uma vez por execução (antes: a cada item).
+ *
+ * V1.3 — regra do Orçamento: toda tabela tem um campo CÓDIGO DYN e um campo
+ *   VALOR UNITÁRIO. O cabeçalho passa a ser lido juntando a linha do CÓDIGO DYN
+ *   com as 2 linhas de cima (célula mesclada em duas linhas, caso BYD, fica na
+ *   linha de cima e era perdida) e a coluna VALOR UNITÁRIO tem prioridade sobre
+ *   qualquer outra regra de preço, inclusive as exceções por cliente.
  *
  * V1.2 — correção: o cabeçalho só era procurado nas primeiras 15 linhas
  *   da aba. Em abas com o bloco de preço real no meio da planilha (ex.:
@@ -79,6 +89,8 @@ var UNIDADES = ['UN','UND','UNID','UNIDADE','M2','M²','M3','M³','ML','M','RL',
 var COLS_PRECOS = ['id_linha','versao_carga','vigente','cliente','cli_dyn','cli_pailon','codigo',
   'cod_pailon','descricao','detalhe','unidade','preco','rotulo_preco','preco_alt','rotulo_alt',
   'data_revisao','status','arquivo','aba','linha_origem'];
+var TP_CACHE = null;    // V1.4 — tabela carregada uma vez por execução
+var CFG_CACHE = null;
 var COLS_ERROS = ['versao_carga','arquivo','aba','linha','motivo','conteudo'];
 
 /* ====================== CONFIGURAÇÃO ====================== */
@@ -133,9 +145,12 @@ function gravarCfg_(cfg, chave, valor) {
 }
 
 function lerCfg_(chave, padrao) {
-  var cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_CONFIG);
-  if (!cfg) return padrao;
-  var v = cfg.getDataRange().getValues();
+  if (!CFG_CACHE) {
+    var cfg = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_CONFIG);
+    if (!cfg) return padrao;
+    CFG_CACHE = cfg.getDataRange().getValues();
+  }
+  var v = CFG_CACHE;
   for (var i = 1; i < v.length; i++) {
     if (String(v[i][0]).trim() === chave) return String(v[i][1]).trim();
   }
@@ -188,6 +203,11 @@ function processarTabelas() {
       }
     }
     Logger.log('--- ' + processados + ' arquivo(s), ' + totItens + ' itens, ' + totErros + ' rejeitados ---');
+    if (processados && typeof recompararPedidos_ === 'function') {
+      CFG_CACHE = null;
+      var rc = recompararPedidos_('SISTEMA (tabela nova)');
+      Logger.log('Pedidos recomparados: ' + rc.itens + ' itens, ' + rc.mud + ' com preço de tabela alterado.');
+    }
   } finally {
     lock.releaseLock();
   }
@@ -254,17 +274,19 @@ function extrairAba_(aba, arquivo) {
 
 function extrairBloco_(v, hi, fim, ultC, arquivo, nomeAba) {
   var itens = [], erros = [];
-  var mapa = mapearColunas_(v[hi]);
+  var cab = cabecalhoCombinado_(v, hi);
+  var mapa = mapearColunas_(cab);
   if (mapa.cod_dyn === undefined) return { itens: itens, erros: erros };
 
   var cj = mapa.cod_dyn;
   var cli = clientePredominante_(v, hi, fim, cj);
   var ex  = EXCECOES[cli] || {};
-  var hdr = v[hi].map(nrm_);
+  var hdr = cab.map(nrm_);
 
-  // coluna de preço
-  var pj = null, rot = '';
-  if (ex.precoCol !== undefined && ex.precoCol - 1 < ultC) pj = ex.precoCol - 1;
+  // coluna de preço — V1.3: VALOR UNITÁRIO manda
+  var pj = colunaValorUnitario_(hdr, ex), rot = '';
+  if (pj !== null) {}
+  else if (ex.precoCol !== undefined && ex.precoCol - 1 < ultC) pj = ex.precoCol - 1;
   else if (ex.precoRe) {
     for (var i = 0; i < hdr.length; i++) {
       if (hdr[i] && ex.precoRe.test(hdr[i])) { pj = i; break; }
@@ -412,7 +434,7 @@ function mapaClientes_() {
 function buscarPreco(codigo) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRECOS);
   if (!sh || sh.getLastRow() < 2) return { status: 'SEM PREÇO EM TABELA', preco: null };
-  var v = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_PRECOS.length).getValues();
+  var v = TP_CACHE || sh.getRange(2, 1, sh.getLastRow() - 1, COLS_PRECOS.length).getValues();
   var achados = [];
   for (var i = 0; i < v.length; i++) {
     if (String(v[i][2]).trim() === 'SIM' && String(v[i][6]).trim() === String(codigo).trim()) achados.push(v[i]);
@@ -547,6 +569,42 @@ function acharCabecalhos_(v) {
     if (temColunaCodDyn_(v[i])) hdrs.push(i);
   }
   return hdrs;
+}
+
+/* V1.3 — texto do cabeçalho por coluna: a própria linha do CÓDIGO DYN e, embaixo
+   dela, o que estiver nas 2 linhas de cima (célula mesclada verticalmente guarda
+   o texto só na primeira linha). */
+function cabecalhoCombinado_(v, hi) {
+  var out = [];
+  for (var j = 0; j < v[hi].length; j++) {
+    var partes = [];
+    for (var r = hi; r >= Math.max(0, hi - 2); r--) {
+      if (r < hi && linhaTemCodigo_(v[r])) break;   // linha de dados do bloco anterior
+      var t = String(v[r][j] === null || v[r][j] === undefined ? '' : v[r][j]).replace(/\s+/g, ' ').trim();
+      if (t && partes.indexOf(t) < 0 && !(r < hi && RE_COD_DYN.test(t))) partes.push(t);
+    }
+    out.push(partes.join(' '));
+  }
+  return out;
+}
+
+function linhaTemCodigo_(l) {
+  for (var j = 0; j < l.length; j++) if (RE_COD_DYN.test(String(l[j] === null || l[j] === undefined ? '' : l[j]).trim())) return true;
+  return false;
+}
+
+/* V1.3 — coluna marcada VALOR UNITÁRIO. Havendo mais de uma: a que cita DYN,
+   depois a de ano mais recente, depois a mais à direita. */
+function colunaValorUnitario_(hdr, ex) {
+  var c = [];
+  for (var j = 0; j < hdr.length; j++) if (/valor(es)?\s*unit/.test(hdr[j] || '')) c.push(j);
+  if (c.length < 2) return c.length ? c[0] : null;
+  var f = c.filter(function (j) { return /\bdyn/.test(hdr[j]); });
+  if (f.length === 1) return f[0]; if (f.length) c = f;
+  if (ex && ex.precoRe) { f = c.filter(function (j) { return ex.precoRe.test(hdr[j]); }); if (f.length) return f[0]; }
+  var ano = -1, melhor = c[0];                       // ano mais recente; sem ano, a primeira
+  c.forEach(function (j) { var m = /20\d\d/.exec(hdr[j]); if (m && +m[0] > ano) { ano = +m[0]; melhor = j; } });
+  return melhor;
 }
 
 function temColunaCodDyn_(linha) {
