@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V2.4
+ * Arquivo: App              Versão: V2.6
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -222,7 +222,7 @@ function carregar(tk) {
         dt: _dataBr(r[I.data_rev_tabela])
       });
     });
-    var DYN = _mapaDyn();
+    var DYN = _mapaDyn(), REV = _revisoes();
     vp.forEach(function (r) {
       if (String(r[P.vigente]).trim() !== 'SIM') return;
       var id = String(r[P.id_pedido]).trim(), rev = pvRev_(r[P.revisao]);
@@ -243,6 +243,8 @@ function carregar(tk) {
       var comp = 0, tab = 0, n = 0;
       itens.forEach(function (x) { if (x.tb > 0) { comp += x.t; tab += x.tb * x.q; n++; } });
       p.comp = _r2(comp); p.tab = _r2(tab); p.ct = n;
+      var ra = REV[p.oc + '|' + rev];
+      if (ra) p.alt = ra;
       out.P.push(p);
     });
   }
@@ -250,6 +252,7 @@ function carregar(tk) {
   if (s.t.indexOf('aud') >= 0 || s.t.indexOf('up') >= 0) {
     var a = _auditoria();
     out.tabelas = a.tabelas; out.tabItens = a.itens;
+    out.sitTab = _situacaoTabelas();
   }
   if (s.t.indexOf('up') >= 0) out.logs = _ultimosLogs(s.p === 'oculto');
   if (s.t.indexOf('dia') < 0 && s.t.indexOf('mes') < 0 && s.t.indexOf('cli') < 0 && s.t.indexOf('aud') < 0) out.P = [];
@@ -271,6 +274,126 @@ function _diasDesde(v) {
 }
 
 /** Tabelas por cliente: itens vigentes, revisão, dias sem revisão, duplicados. */
+/* ====================== ATUALIZAR TABELAS DE VENDA (V2.6) ====================== */
+
+/** Refaz a comparação de preço de todos os itens dos pedidos vigentes com as
+    tabelas vigentes de hoje. Sem lock (quem chama segura o lock). */
+function recompararPedidos_(quem) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var shI = ss.getSheetByName(ABA_ITENS), shP = ss.getSheetByName(ABA_PEDIDOS), shT = ss.getSheetByName(ABA_PRECOS);
+  var res = { itens: 0, mud: 0, ped: 0 };
+  if (!shI || shI.getLastRow() < 2 || !shP || shP.getLastRow() < 2) return res;
+  TP_CACHE = shT && shT.getLastRow() > 1 ? shT.getRange(2, 1, shT.getLastRow() - 1, COLS_PRECOS.length).getValues() : [];
+  CFG_CACHE = null;
+  try {
+    var P = _idx(COLS_PEDIDOS), I = _idx(COLS_ITENS);
+    var vp = shP.getRange(2, 1, shP.getLastRow() - 1, COLS_PEDIDOS.length).getValues();
+    var vig = {};
+    vp.forEach(function (r) { if (String(r[P.vigente]).trim() === 'SIM') vig[String(r[P.id_pedido]).trim() + '|' + pvRev_(r[P.revisao])] = { comp: 0, tab: 0, n: 0 }; });
+    var n = shI.getLastRow() - 1;
+    var vi = shI.getRange(2, 1, n, COLS_ITENS.length).getValues();
+    var c0 = I.preco_tabela, bloco = vi.map(function (r) { return r.slice(c0, c0 + 6); });
+    var memo = {};
+    vi.forEach(function (r, i) {
+      var k = String(r[I.id_pedido]).trim() + '|' + pvRev_(r[I.revisao]);
+      var pd = vig[k]; if (!pd) return;
+      var cod = String(r[I.codigo]).trim(), pc = Number(r[I.preco_cheio]) || 0, q = Number(r[I.qtde]) || 0;
+      var mk = cod + '|' + pc, cmp = memo[mk];
+      if (!cmp) { cmp = { status: 'SEM PREÇO EM TABELA' }; try { cmp = compararPreco(cod, pc); } catch (e) {} memo[mk] = cmp; }
+      var ref = cmp.referencia || '';
+      var nova = [ref, cmp.rotulo || '', cmp.variacao === null || cmp.variacao === undefined ? '' : cmp.variacao,
+                  ref ? Math.round((pc - ref) * q * 100) / 100 : '', cmp.status || '', cmp.data_rev || ''];
+      if (Number(bloco[i][0] || 0) !== Number(ref || 0)) res.mud++;
+      bloco[i] = nova; res.itens++;
+      if (ref) { pd.comp += Number(r[I.total_cheio]) || 0; pd.tab += ref * q; pd.n++; }
+    });
+    shI.getRange(2, c0 + 1, n, 6).setValues(bloco);
+    var cols = vp.map(function (r) {
+      var pd = vig[String(r[P.id_pedido]).trim() + '|' + pvRev_(r[P.revisao])];
+      if (!pd) return [r[P.total_tabela], r[P.desvio_valor], r[P.desvio_pct]];
+      res.ped++;
+      if (!pd.n) return ['', '', ''];
+      var t = Math.round(pd.tab * 100) / 100, d = Math.round((pd.comp - pd.tab) * 100) / 100;
+      return [t, d, t ? Math.round(d / t * 10000) / 100 : ''];
+    });
+    shP.getRange(2, P.total_tabela + 1, vp.length, 3).setValues(cols);
+  } finally { TP_CACHE = null; }
+  var info = { dh: _agora(), quem: quem, itens: res.itens, mud: res.mud, ped: res.ped };
+  PropertiesService.getScriptProperties().setProperty('rc_ult', JSON.stringify(info));
+  _log({ u: String(quem).split(' ')[0], p: 'sistema' }, 'ATUALIZAÇÃO DE TABELAS', res.ped + ' pedidos · ' + res.itens + ' itens · ' + res.mud + ' com preço de tabela alterado');
+  return res;
+}
+
+/** Botão "Atualizar tabelas de venda" da Auditoria: lê as tabelas que estiverem na
+    fila e refaz a comparação de todos os pedidos. */
+function atualizarTabelasVenda(tk) {
+  var s = _sessao(tk);
+  var fila = _pendentes('pasta_tabelas_entrada_id');
+  if (fila > 0) { try { processarTabelas(); } catch (e) {} }
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return { ok: false, msg: 'Outro processamento em andamento. Tente em 1 minuto.' };
+  try {
+    var r = recompararPedidos_(s.n);
+    return { ok: true, msg: (fila ? fila + ' tabela(s) lida(s) · ' : '') + r.ped + ' pedidos recalculados · ' + r.mud + ' item(ns) com preço de tabela alterado.' };
+  } finally { lock.releaseLock(); }
+}
+
+function _pendentes(idCfg) {
+  try { var it = DriveApp.getFolderById(lerCfg_(idCfg, '')).getFiles(), n = 0; while (it.hasNext()) { it.next(); n++; } return n; }
+  catch (e) { return 0; }
+}
+
+/** Situação para o topo da Auditoria. */
+function _situacaoTabelas() {
+  var o = { up: null, carga: '', rc: null, fila: _pendentes('pasta_tabelas_entrada_id') };
+  try { o.rc = JSON.parse(PropertiesService.getScriptProperties().getProperty('rc_ult') || 'null'); } catch (e) {}
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_LOG);
+  if (sh && sh.getLastRow() > 1) {
+    var n = Math.min(3000, sh.getLastRow() - 1);
+    var v = sh.getRange(sh.getLastRow() - n + 1, 1, n, COLS_LOG.length).getValues();
+    for (var i = v.length - 1; i >= 0; i--) {
+      if (String(v[i][3]) === 'UPLOAD TABELA') {
+        var dh = v[i][0]; if (Object.prototype.toString.call(dh) === '[object Date]') dh = Utilities.formatDate(dh, FUSO, 'dd/MM/yyyy HH:mm:ss');
+        o.up = { dh: String(dh), u: String(v[i][1]), d: String(v[i][4]).split(' · ')[0] }; break;
+      }
+    }
+  }
+  return o;
+}
+
+/** V2.5 — última revisão de cada OS: o que mudou (aba Revisoes). */
+function _revisoes() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_REVISOES), m = {};
+  if (!sh || sh.getLastRow() < 2) return m;
+  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_REVISOES.length).getValues().forEach(function (r) {
+    var oc = String(r[1]).trim(), para = pvRev_(r[3]);
+    if (!oc) return;
+    var k = oc + '|' + para, dh = r[0];
+    if (Object.prototype.toString.call(dh) === '[object Date]') dh = Utilities.formatDate(dh, FUSO, 'dd/MM/yyyy HH:mm');
+    dh = String(dh);
+    var x = m[k] = m[k] || { de: pvRev_(r[2]), para: para, dh: dh, dias: _diasDesde(dh.substring(0, 10)), ch: [] };
+    x.ch.push({ t: String(r[5] || ''), c: String(r[6] || '').trim(), d: String(r[7] || ''),
+                de: r[8] === null ? '' : r[8], pa: r[9] === null ? '' : r[9] });
+  });
+  return m;
+}
+
+/** V2.5 — devolve a tabela vigente do cliente (arquivo da pasta de processadas). */
+function baixarTabela(tk, cod) {
+  var s = _sessao(tk);
+  var t = _auditoria().tabelas.filter(function (x) { return x.cod === cod; })[0];
+  if (!t || !t.arq) return { ok: false, msg: 'Tabela não encontrada.' };
+  var f = null;
+  try {
+    var it = DriveApp.getFolderById(lerCfg_('pasta_tabelas_processadas_id', '')).getFilesByName(t.arq);
+    while (it.hasNext()) { var g = it.next(); if (!f || g.getDateCreated() > f.getDateCreated()) f = g; }
+  } catch (e) {}
+  if (!f) return { ok: false, msg: 'Arquivo ' + t.arq + ' não está na pasta 02 Tabelas Processadas.' };
+  var b = f.getBlob();
+  _log(s, 'DOWNLOAD TABELA', t.cod + ' ' + t.cli + ' · ' + t.arq);
+  return { ok: true, nome: t.arq, mime: b.getContentType(), b64: Utilities.base64Encode(b.getBytes()) };
+}
+
 function _auditoria() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRECOS);
   var porCli = {}, itens = {};
@@ -412,6 +535,10 @@ function enviarArquivo(tk, tipo, nome, mime, dados, extra) {
     }
     if (tipo === 'tabela') {
       if (!/\.(xlsx|xlsm|xls)$/i.test(nome)) return { ok: false, msg: nome + ': não é Excel.' };
+      var ext = (/\.(xlsx|xlsm|xls)$/i.exec(nome) || ['', '.xlsx'])[0];
+      var base = nome.replace(/\.(xlsx|xlsm|xls)$/i, '').replace(/\s*\(\d+\)$/, '').replace(/_\d{4}-\d{2}-\d{2}_\d{4}$/, '').trim();
+      nome = base + '_' + Utilities.formatDate(new Date(), FUSO, 'yyyy-MM-dd_HHmm') + ext;
+      blob.setName(nome);
       pastaApp_(raiz, P_UP_TABELAS).createFile(blob);
       _log(s, 'UPLOAD TABELA', nome + ' · ' + kb + (extra && extra.cli ? ' · cliente ' + extra.cli : ''));
       return { ok: true, msg: nome + ' na fila de tabelas.' };
