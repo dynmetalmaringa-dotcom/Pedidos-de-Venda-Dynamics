@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V2.6
+ * Arquivo: App              Versão: V2.7
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -235,7 +235,8 @@ function carregar(tk) {
         cli: nome, cp: pvPad_(r[P.cli_pailon], 3), rv: String(r[P.revenda] || '').trim(),
         loc: [String(r[P.cidade] || '').trim(), String(r[P.uf] || '').trim()].filter(String).join(' - '),
         dp: _dataBr(r[P.data_pedido]), ent: _dataBr(r[P.data_entrega]),
-        v: _r2(v), v40: _r2(v40), itens: itens
+        v: _r2(v), v40: _r2(v40), itens: itens,
+        dc: (function (x) { return Object.prototype.toString.call(x) === '[object Date]' ? Utilities.formatDate(x, FUSO, 'dd/MM/yyyy HH:mm') : String(x || '').trim(); })(r[P.data_carga])
       };
       p.sv = v < 1;
       p.cd = DYN.cod[p.cp] || _dynPorNome(DYN, nome) ||
