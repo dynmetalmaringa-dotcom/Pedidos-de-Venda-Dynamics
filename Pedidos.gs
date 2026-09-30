@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — EXTRATOR DE PEDIDOS DE VENDA
- * Arquivo: Pedidos          Versão: V1.6
+ * Arquivo: Pedidos          Versão: V1.7
  *
  * O QUE FAZ
  *   Lê os PDFs de pedido de venda do ForWood que o Orçamento sobe na
@@ -318,6 +318,7 @@ function pvItens_(linhas) {
   for (var p = 0; p < toks.length; p++) if (RE_COD_TOKEN.test(toks[p])) cods.push(p);
 
   var out = [], fimAnterior = 0;
+  var pend = /Somente\s+itens\s+pendentes/i.test(linhas.join(' '));   // V1.7 — layout de 3 números
   for (var c = 0; c < cods.length; c++) {
     var ip = cods[c];
 
@@ -333,19 +334,30 @@ function pvItens_(linhas) {
 
     // --- primeira sequência de 5 números seguidos depois do código
     var n0 = -1;
-    for (var d = ip + 1; d + 4 < toks.length; d++) {
+    for (var d = ip + 1; !pend && d + 4 < toks.length; d++) {
       if (RE_NUM.test(toks[d]) && RE_NUM.test(toks[d+1]) && RE_NUM.test(toks[d+2]) &&
           RE_NUM.test(toks[d+3]) && RE_NUM.test(toks[d+4])) { n0 = d; break; }
       // se esbarrar no próximo código antes de achar os 5 números, desiste
       if (RE_COD_TOKEN.test(toks[d])) break;
     }
+    // layout "Somente itens pendentes": só 3 números (unitário, total, %IPI)
+    var nn = 5;
+    if (n0 < 0) {
+      for (var d3 = ip + 1; d3 + 2 < toks.length; d3++) {
+        if (RE_COD_TOKEN.test(toks[d3])) break;
+        if (RE_NUM.test(toks[d3]) && RE_NUM.test(toks[d3+1]) && RE_NUM.test(toks[d3+2])) {
+          var u3 = pvNum_(toks[d3]), t3 = pvNum_(toks[d3+1]);
+          if (u3 !== null && t3 !== null && Math.abs(u3 * qtde - t3) <= Math.max(0.05, Math.abs(t3) * 0.001)) { n0 = d3; nn = 3; break; }
+        }
+      }
+    }
     if (n0 < 0) continue;
 
     var unit  = pvNum_(toks[n0]);
-    var frete = pvNum_(toks[n0 + 1]);
-    var vtot  = pvNum_(toks[n0 + 2]);
-    var ipipc = pvNum_(toks[n0 + 3]);
-    var ipivl = pvNum_(toks[n0 + 4]);
+    var frete = nn === 5 ? pvNum_(toks[n0 + 1]) : 0;
+    var vtot  = pvNum_(toks[n0 + (nn === 5 ? 2 : 1)]);
+    var ipipc = pvNum_(toks[n0 + (nn === 5 ? 3 : 2)]);
+    var ipivl = nn === 5 ? pvNum_(toks[n0 + 4]) : 0;
     if (unit === null || vtot === null) continue;
 
     // --- unidade e descrição
@@ -356,7 +368,7 @@ function pvItens_(linhas) {
     //     25 caracteres e joga o resto depois dos números)
     if (desc.length >= 24) {
       var cont = [];
-      for (var e = n0 + 5; e < toks.length; e++) {
+      for (var e = n0 + nn; e < toks.length; e++) {
         // para no próximo item, em qualquer número, ou ao esbarrar no
         // cabeçalho/rodapé da página seguinte
         if (RE_NUM.test(toks[e]) || RE_COD_TOKEN.test(toks[e]) || RE_CORTE.test(toks[e])) break;
@@ -376,7 +388,7 @@ function pvItens_(linhas) {
       total_cheio: Math.round(vtot * FATOR_CHEIO * 100) / 100,
       frete: frete, ipi_pct: ipipc, ipi_vlr: ipivl
     });
-    fimAnterior = n0 + 5;
+    fimAnterior = n0 + nn;
   }
   return out;
 }
@@ -856,4 +868,16 @@ function pvExcluirLinhas_(sh, col, set) {
     if (set[String(vals[i][0]).trim()]) { sh.deleteRow(i + 2); n2++; }
   }
   return n2;
+}
+
+
+/* V1.7 — devolve para a entrada todos os PDFs que estão em "05 Falhas"
+   e processa de novo. Rodar uma vez depois de colar a V1.7. */
+function reprocessarFalhas() {
+  var raiz = pvPasta_(null, PV_RAIZ);
+  var ent = pvPasta_(raiz, PV_ENTRADA), fal = pvPasta_(raiz, PV_FALHAS);
+  var it = fal.getFiles(), n = 0;
+  while (it.hasNext()) { it.next().moveTo(ent); n++; }
+  Logger.log(n + ' arquivo(s) devolvidos para "' + PV_ENTRADA + '". Processando…');
+  processarPedidos();
 }
