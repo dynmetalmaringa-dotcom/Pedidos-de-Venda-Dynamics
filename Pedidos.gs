@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — EXTRATOR DE PEDIDOS DE VENDA
- * Arquivo: Pedidos          Versão: V1.5
+ * Arquivo: Pedidos          Versão: V1.6
  *
  * O QUE FAZ
  *   Lê os PDFs de pedido de venda do ForWood que o Orçamento sobe na
@@ -51,6 +51,15 @@
  *   entraram em dobro — mantém vigente só a maior revisão e grava na aba
  *   Revisoes o que mudou entre elas.
  *
+ * V1.6 — (1) RETRABALHO: pedido com ID (4-5 dígitos no lugar da OS) entra como
+ *   retrabalho (oc = "RT<ID>", tipo = RETRABALHO), com a OS de origem lida da
+ *   observação. (2) MESMA REVISÃO COM CONTEÚDO DIFERENTE: não é mais descartada —
+ *   vira atualização, a anterior sai de vigente e a aba Revisoes registra
+ *   "ALTERADO SEM TROCA DE REVISAO" + as mudanças. (3) Revisão sem a anterior na
+ *   base é registrada como "REVISAO SEM ANTERIOR NA BASE". (4) PDF "Somente itens
+ *   pendentes de faturamento" de pedido que já está na base nunca substitui o
+ *   pedido: só registra "SALDO CONFERIDO".
+ *
  * FUNÇÕES PARA USAR NO EDITOR
  *   configurarPedidos()      cria pastas e abas
  *   processarPedidos()       processa tudo que está na pasta de entrada
@@ -80,7 +89,8 @@ var PV_ORCAMENTO = 4.5 * 60 * 1000;
 var COLS_PEDIDOS = ['id_pedido','oc','vigente','cli_pailon','cliente','ano','sequencial','revisao',
   'numero_erp','data_pedido','data_entrega','cond_pagto','observacao','revenda','cidade','uf',
   'qtd_itens','total_40','total_cheio','total_tabela','desvio_valor','desvio_pct',
-  'confere_valor','confere_qtde','status','oc_divergente','arquivo','data_carga'];
+  'confere_valor','confere_qtde','status','oc_divergente','arquivo','data_carga',
+  'tipo','os_origem','somente_pendentes'];
 
 var COLS_ITENS = ['id_item','id_pedido','oc','revisao','seq','codigo','descricao','unidade','qtde',
   'preco_40','preco_cheio','total_cheio','preco_tabela','rotulo_ref','desvio_pct','desvio_valor',
@@ -218,6 +228,17 @@ function pvCabecalho_(txt) {
   m = /Previs[aã]o\s+Entrega\s*:\s*;?\s*(\d{2}\/\d{2}\/\d{2})/.exec(txt); h.data_entrega = m ? m[1] : '';
   m = /OC\s*:\s*;?\s*(\d{1,3}\.\d{2}\.\d{3}-\d{2})/.exec(txt);      var ocImp = m ? m[1] : '';
   m = /Nr\. Pedido Rep\.\s*:\s*;?\s*(\d{10})/.exec(txt);            var rep = m ? m[1] : '';
+  h.pendentes = /Somente\s+itens\s+pendentes/i.test(txt) ? 'SIM' : '';
+  h.tipo = 'VENDA'; h.os_origem = '';
+  if (!rep && !ocImp) {                                              // V1.6 — retrabalho (ID)
+    m = /Nr\. Pedido Rep\.\s*:\s*;?\s*(\d{3,6})\b/.exec(txt) || /OC\s*:\s*;?\s*(\d{3,6})\b/.exec(txt);
+    if (m) {
+      h.tipo = 'RETRABALHO'; h.id_rt = m[1];
+      var io = txt.search(/Observa[cç][aã]o/);
+      var mo = io >= 0 ? /(\d{2,3})\.(\d{2})\.(\d{3})-(\d{2})/.exec(txt.substr(io, 400)) : null;
+      if (mo) h.os_origem = ('000' + mo[1]).slice(-3) + '.' + mo[2] + '.' + mo[3] + '-' + mo[4];
+    }
+  }
 
   // O campo OC perde o zero à esquerda (39.26.063 em vez de 039.26.063).
   // O Nr. Pedido Rep. traz o mesmo número sem pontuação e com o zero.
@@ -229,7 +250,10 @@ function pvCabecalho_(txt) {
   h.oc_impresso = ocImp;
   h.oc_divergente = (ocImp && rep && ocImp.replace(/^(\d\d)\./, '0$1.') !== h.oc) ? 'SIM' : 'NAO';
 
-  if (h.oc) {
+  if (h.tipo === 'RETRABALHO') {
+    h.oc = 'RT' + h.id_rt; h.revisao = '00'; h.ano = ''; h.sequencial = h.id_rt;
+    h.cli_pailon = h.os_origem ? h.os_origem.substring(0, 3) : '';
+  } else if (h.oc) {
     var p = h.oc.split('.');
     h.cli_pailon = p[0];
     h.ano        = p[1];
@@ -441,10 +465,29 @@ function processarPedidos() {
         if (!r.cab.oc) throw new Error('Não foi possível ler o número do pedido (campo OC).');
         if (!r.itens.length) throw new Error('Nenhum item reconhecido.');
 
-        if (pvJaExiste_(shP, r.cab.oc)) {
-          pvErro_(ss, agora, nome, 'PEDIDO JA PROCESSADO', r.cab.oc + ' já está na base');
-          arq.moveTo(pro); nDup++;
-          continue;
+        var ex = pvJaExiste_(shP, r.cab.oc);
+        if (ex) {
+          if (String(ex.r[2]).trim() !== 'SIM') {
+            pvErro_(ss, agora, nome, 'REVISAO ANTIGA', r.cab.oc + ' já substituída por revisão mais nova — ignorada');
+            arq.moveTo(pro); nDup++; continue;
+          }
+          if (r.cab.pendentes === 'SIM') {
+            pvErro_(ss, agora, nome, 'SALDO CONFERIDO', r.cab.oc + ' — PDF de itens pendentes; o pedido completo continua valendo');
+            arq.moveTo(pro); nDup++; continue;
+          }
+          var assN = pvAssinatura_(r.cab.data_entrega, r.cab.total_40, r.itens.map(function (x) { return [x.codigo, x.qtde, x.preco_40]; }));
+          if (assN === pvAssinaturaBase_(shP, shI, ex)) {
+            pvErro_(ss, agora, nome, 'PEDIDO JA PROCESSADO', r.cab.oc + ' já está na base, sem mudança');
+            arq.moveTo(pro); nDup++; continue;
+          }
+          r.sufixo = '-A' + (ex.n + 1);
+          var antA = { oc: String(ex.r[1]).trim(), revisao: pvRev_(ex.r[7]), data_entrega: ex.r[10], total_cheio: ex.r[18], id: String(ex.r[0]).trim() };
+          pvGravar_(ss, shP, shI, r, nome, agora);
+          var difA = pvDiff_(shI, antA, r, antA.id);
+          difA.unshift(['ALERTA', 'ALTERADO SEM TROCA DE REVISAO', '', 'Conteúdo mudou e o número da revisão continuou ' + antA.revisao, '', '']);
+          pvGravarRevisoes_(shR, agora, r.cab, antA.revisao, difA);
+          Logger.log(nome + ' -> ' + r.cab.oc + ' ALTERADO SEM TROCA DE REVISÃO, ' + (difA.length - 1) + ' mudança(s)');
+          arq.moveTo(pro); n++; nRev++; continue;
         }
         var ant = pvPedidoVigente_(shP, r.cab.oc);
         if (ant && Number(pvRev_(r.cab.revisao)) < Number(ant.revisao)) {
@@ -464,6 +507,9 @@ function processarPedidos() {
 
         pvGravar_(ss, shP, shI, r, nome, agora);
 
+        if (!ant && r.cab.tipo !== 'RETRABALHO' && Number(pvRev_(r.cab.revisao)) > 0) {
+          pvGravarRevisoes_(shR, agora, r.cab, '', [['ALERTA', 'REVISAO SEM ANTERIOR NA BASE', '', 'Revisão ' + r.cab.revisao + ' recebida sem a revisão anterior carregada no app', '', '']]);
+        }
         if (ant) {
           var difs = pvDiff_(shI, ant, r);
           pvGravarRevisoes_(shR, agora, r.cab, ant.revisao, difs);
@@ -488,10 +534,34 @@ function processarPedidos() {
 
 /** Devolve o pedido vigente daquele OC, ou null. */
 function pvJaExiste_(shP, oc) {
-  if (!oc || shP.getLastRow() < 2) return false;
-  var v = shP.getRange(2, 2, shP.getLastRow() - 1, 1).getValues();
-  for (var i = 0; i < v.length; i++) if (String(v[i][0]).trim() === oc) return true;
-  return false;
+  if (!oc || shP.getLastRow() < 2) return null;
+  var v = shP.getRange(2, 1, shP.getLastRow() - 1, COLS_PEDIDOS.length).getValues();
+  var achou = null, n = 0;
+  for (var i = 0; i < v.length; i++) {
+    if (String(v[i][1]).trim() !== oc) continue;
+    n++;
+    if (!achou || String(v[i][2]).trim() === 'SIM') achou = { r: v[i], linha: i + 2 };
+  }
+  if (achou) achou.n = n;
+  return achou;
+}
+function pvAssinatura_(entrega, total40, itens) {
+  var e = Object.prototype.toString.call(entrega) === '[object Date]' ? Utilities.formatDate(entrega, PV_FUSO, 'dd/MM/yy') : String(entrega || '').trim();
+  var l = itens.map(function (x) { return String(x[0]).trim() + '|' + (Math.round(Number(x[1]) * 1000) / 1000) + '|' + (Math.round(Number(x[2]) * 100) / 100); }).sort();
+  return e + '#' + (Math.round(Number(total40) * 100) / 100) + '#' + l.join(';');
+}
+function pvAssinaturaBase_(shP, shI, ex) {
+  var id = String(ex.r[0]).trim(), rev = pvRev_(ex.r[7]);
+  var its = shI.getLastRow() > 1 ? shI.getRange(2, 1, shI.getLastRow() - 1, COLS_ITENS.length).getValues() : [];
+  var l = its.filter(function (x) { return String(x[1]).trim() === id && pvRev_(x[3]) === rev; })
+             .map(function (x) { return [x[5], x[8], x[9]]; });
+  return pvAssinatura_(ex.r[10], ex.r[17], l);
+}
+function pvCabecalhoNovo_(shP) {
+  var n = COLS_PEDIDOS.length;
+  if (String(shP.getRange(1, n).getValues()[0][0]).trim() !== COLS_PEDIDOS[n - 1]) {
+    shP.getRange(1, 1, 1, n).setValues([COLS_PEDIDOS]).setFontWeight('bold');
+  }
 }
 function pvOs_(oc) { return String(oc || '').trim().replace(/-\d{1,2}$/, ''); }
 
@@ -525,7 +595,7 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
     if (mudou) shP.getRange(2, 3, n, 1).setValues(vig);
   }
 
-  var idPedido = 'PV' + h.oc.replace(/[.\-]/g, '');
+  var idPedido = (h.tipo === 'RETRABALHO' ? '' : 'PV') + h.oc.replace(/[.\-]/g, '') + (r.sufixo || '');
   var nomeCli = pvNomeCliente_(h.cli_pailon) || h.cliente_obs;
 
   // itens com a comparação de preço já resolvida
@@ -556,7 +626,9 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
   shP.appendRow([idPedido, h.oc, r.historico ? 'NAO' : 'SIM', h.cli_pailon, nomeCli, h.ano, h.sequencial, h.revisao,
     h.numero, h.data_pedido, h.data_entrega, h.cond_pagto, h.observacao, h.revenda, h.cidade, h.uf,
     h.qtd_itens, h.total_40, h.total_cheio, comRef ? totTab : '', desvio, desvioPct,
-    h.confere_valor, h.confere_qtde, h.status, h.oc_divergente, nome, agora]);
+    h.confere_valor, h.confere_qtde, h.status, h.oc_divergente, nome, agora,
+    h.tipo || 'VENDA', h.os_origem || '', h.pendentes || '']);
+  pvCabecalhoNovo_(shP);
 
   if (linhasIt.length) {
     shI.getRange(shI.getLastRow() + 1, 1, linhasIt.length, COLS_ITENS.length).setValues(linhasIt);
@@ -583,13 +655,14 @@ function pvNomeCliente_(codPailon) {
  *   PROGRAMACAO  — mexe na data de entrega: avisa o PCP
  *   PRODUTIVA    — item, quantidade ou descrição: trava e avisa
  */
-function pvDiff_(shI, ant, r) {
+function pvDiff_(shI, ant, r, idAnt) {
   var difs = [];
   var antigos = {};
   if (shI.getLastRow() >= 2) {
     var v = shI.getRange(2, 1, shI.getLastRow() - 1, COLS_ITENS.length).getValues();
     for (var i = 0; i < v.length; i++) {
-      if (String(v[i][2]).trim() === String(ant.oc).trim() && pvRev_(v[i][3]) === ant.revisao) {
+      if (idAnt ? String(v[i][1]).trim() === idAnt
+                : (String(v[i][2]).trim() === String(ant.oc).trim() && pvRev_(v[i][3]) === ant.revisao)) {
         antigos[String(v[i][5]).trim()] = { qtde: Number(v[i][8]), preco: Number(v[i][10]), desc: v[i][6] };
       }
     }
