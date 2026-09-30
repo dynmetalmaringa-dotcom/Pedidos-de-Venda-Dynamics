@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — EXTRATOR DE PEDIDOS DE VENDA
- * Arquivo: Pedidos          Versão: V1.7
+ * Arquivo: Pedidos          Versão: V1.9
  *
  * O QUE FAZ
  *   Lê os PDFs de pedido de venda do ForWood que o Orçamento sobe na
@@ -84,7 +84,7 @@ var ABA_PVERROS  = 'PedidoErros';
 
 var FATOR_CHEIO  = 2.5;     // valor do PDF é 40% do valor de venda
 var PV_FUSO      = 'America/Sao_Paulo';
-var PV_ORCAMENTO = 4.5 * 60 * 1000;
+var PV_ORCAMENTO = 5 * 60 * 1000;
 
 var COLS_PEDIDOS = ['id_pedido','oc','vigente','cli_pailon','cliente','ano','sequencial','revisao',
   'numero_erp','data_pedido','data_entrega','cond_pagto','observacao','revenda','cidade','uf',
@@ -435,6 +435,17 @@ function pvLer_(arq) {
   h.total_40       = soma;
   h.total_cheio    = Math.round(soma * FATOR_CHEIO * 100) / 100;
   h.confere_valor  = (h.total_pedido !== null && Math.abs(soma - h.total_pedido) < 0.02) ? 'SIM' : 'NAO';
+  // V1.8 — relatório "Somente itens pendentes": o "Total das Previsões" é o saldo
+  // de pagamento do pedido inteiro; o que vale é o total dos itens pendentes
+  // (Vlr Bruto Itens / VLR TOTAL) impresso no rodapé.
+  if (h.confere_valor === 'NAO' && h.pendentes === 'SIM') {
+    var pr = txt.search(/Qtde\.\s*de\s*Produtos/i);
+    var nums = (pr >= 0 ? txt.substring(pr) : txt).match(/\d{1,3}(?:\.\d{3})*,\d{2}\b/g) || [];
+    for (var k = 0; k < nums.length; k++) {
+      var vn = pvNum_(nums[k]);
+      if (vn !== null && Math.abs(vn - soma) < 0.02) { h.confere_valor = 'SIM'; h.total_pedido = vn; break; }
+    }
+  }
 
   // A conferência de quantidade é auxiliar: quando o rodapé não traz o número,
   // ela fica "SEM REFERENCIA" e NÃO reprova o pedido — quem manda é o valor,
@@ -463,6 +474,11 @@ function processarPedidos() {
     var agora = Utilities.formatDate(new Date(), PV_FUSO, 'dd/MM/yyyy HH:mm');
 
     pvCorrigirVigencia_(ss, shP, shI, shR, agora);   // V1.5
+
+    // V1.9 — tabela de preços e clientes lidos UMA vez por execução
+    // (antes cada item de cada pedido relia a aba de preços inteira)
+    var shT = ss.getSheetByName(ABA_PRECOS);
+    TP_CACHE = shT && shT.getLastRow() > 1 ? shT.getRange(2, 1, shT.getLastRow() - 1, COLS_PRECOS.length).getValues() : [];
 
     var arquivos = [], it = ent.getFiles();
     while (it.hasNext()) arquivos.push(it.next());
@@ -538,8 +554,9 @@ function processarPedidos() {
         Logger.log('FALHA em ' + nome + ': ' + e);
       }
     }
-    Logger.log('--- ' + n + ' pedido(s), ' + nRev + ' revisão(ões), ' + nDup + ' duplicado(s) ---');
+    Logger.log('--- ' + n + ' pedido(s), ' + nRev + ' revisão(ões), ' + nDup + ' duplicado(s) · ' + Math.round((Date.now() - t0) / 1000) + ' s ---');
   } finally {
+    TP_CACHE = null; PV_CLI = null;
     lock.releaseLock();
   }
 }
@@ -647,10 +664,13 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
   }
 }
 
+var PV_CLI = null;   // V1.9 — aba Clientes lida uma vez por execução
 function pvNomeCliente_(codPailon) {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Clientes');
-  if (!sh || sh.getLastRow() < 2) return '';
-  var v = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
+  if (!PV_CLI) {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Clientes');
+    PV_CLI = (!sh || sh.getLastRow() < 2) ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
+  }
+  var v = PV_CLI;
   for (var i = 0; i < v.length; i++) {
     // pvPad_ nos dois lados: o código do cliente na aba Clientes pode ter sido
     // gravado como número (039 vira 39) e não bateria com o código do pedido
@@ -880,4 +900,27 @@ function reprocessarFalhas() {
   while (it.hasNext()) { it.next().moveTo(ent); n++; }
   Logger.log(n + ' arquivo(s) devolvidos para "' + PV_ENTRADA + '". Processando…');
   processarPedidos();
+}
+
+/* V1.8 — reconfere os pedidos de "itens pendentes" que ficaram REVISAR na
+   V1.7 (o app não usa essa marca; ela só aparece na aba Pedidos).
+   Relê cada PDF na pasta de processados e acerta confere_valor/status.
+   Se o tempo acabar, rode de novo: continua de onde parou. */
+function reconferirPendentes() {
+  var ini = Date.now(), ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ABA_PEDIDOS);
+  var pro = pvPasta_(pvPasta_(null, PV_RAIZ), PV_PROCESSADOS);
+  var cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var c = {}; cab.forEach(function (n, i) { c[n] = i; });
+  var v = sh.getRange(2, 1, sh.getLastRow() - 1, cab.length).getValues(), n = 0, resta = 0;
+  for (var i = 0; i < v.length; i++) {
+    if (String(v[i][c.somente_pendentes]) !== 'SIM' || String(v[i][c.status]) !== 'REVISAR') continue;
+    if (Date.now() - ini > PV_ORCAMENTO) { resta++; continue; }
+    var fs = pro.getFilesByName(String(v[i][c.arquivo]));
+    if (!fs.hasNext()) continue;
+    var r = pvLer_(fs.next());
+    if (Math.abs(r.cab.total_40 - Number(v[i][c.total_40])) > 0.02) continue;   // só acerta se for o mesmo conteúdo
+    sh.getRange(i + 2, c.confere_valor + 1, 1, 3).setValues([[r.cab.confere_valor, r.cab.confere_qtde, r.cab.status]]);
+    n++;
+  }
+  Logger.log(n + ' pedido(s) reconferido(s).' + (resta ? ' Faltam ' + resta + ': rode de novo.' : ' Concluído.'));
 }
