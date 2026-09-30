@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V2.8
+ * Arquivo: App              Versão: V3.0
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -50,8 +50,18 @@ function inc(nome) { return HtmlService.createHtmlOutputFromFile(nome).getConten
 /* ====================== INSTALAÇÃO ====================== */
 
 /* Nomes das telas aceitos na coluna "telas" da aba Acessos */
-var TELAS_OK = { DIA: 'dia', MES: 'mes', 'MÊS': 'mes', CLIENTES: 'cli', AUDITORIA: 'aud', UPLOAD: 'up' };
-var TODAS_TELAS = ['dia', 'mes', 'cli', 'aud', 'up'];
+/* V3.0 — telas: VENDA (dia, mes, cli) · RETRABALHO (rdia, rmes, rcli) · ORÇAMENTO (aud)
+   · ARQUIVOS (up, reg) · FATURAMENTO (flan, fdash).
+   Na coluna "telas": DIA, MES, CLIENTES, RETRABALHO, AUDITORIA, UPLOAD, REGISTROS,
+   FATURAMENTO — ou TODAS. Quem tem DIA/MES/CLIENTES vê também o RETRABALHO;
+   UPLOAD inclui REGISTROS. */
+var TELAS_OK = { DIA: ['dia'], MES: ['mes'], 'MÊS': ['mes'], CLIENTES: ['cli'], VENDA: ['dia', 'mes', 'cli'],
+  RETRABALHO: ['rdia', 'rmes', 'rcli'], RETRABALHOS: ['rdia', 'rmes', 'rcli'], AUDITORIA: ['aud'],
+  UPLOAD: ['up', 'reg'], REGISTROS: ['reg'], FATURAMENTO: ['flan', 'fdash'] };
+var TODAS_TELAS = ['dia', 'mes', 'cli', 'rdia', 'rmes', 'rcli', 'aud', 'up', 'reg', 'flan', 'fdash'];
+var ABA_FAT = 'Faturamento';
+var COLS_FAT = ['data_hora','usuario','nf','data_nf','id_pedido','oc','os','revisao','cliente','codigo','descricao',
+  'qtde_pedido','qtde_faturada','unit_pedido_40','unit_faturado_40','total_faturado_40','alterado'];
 
 function instalarV2() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -107,9 +117,9 @@ function _telas(txt) {
   if (/TODAS|TUDO/.test(t)) return TODAS_TELAS.slice();
   var out = [];
   t.split(/[,;\/\s]+/).forEach(function (x) {
-    var k = TELAS_OK[x.trim()];
-    if (k && out.indexOf(k) < 0) out.push(k);
+    (TELAS_OK[x.trim()] || []).forEach(function (k) { if (out.indexOf(k) < 0) out.push(k); });
   });
+  if (/\bDIA\b|\bMES\b|MÊS|CLIENTES|VENDA/.test(t)) ['rdia', 'rmes', 'rcli'].forEach(function (k) { if (out.indexOf(k) < 0) out.push(k); });
   return TODAS_TELAS.filter(function (k) { return out.indexOf(k) >= 0; });
 }
 
@@ -222,7 +232,7 @@ function carregar(tk) {
         dt: _dataBr(r[I.data_rev_tabela])
       });
     });
-    var DYN = _mapaDyn(), REV = _revisoes();
+    var DYN = _mapaDyn(), REV = _revisoes(), FAT = _faturadoPorItem();
     vp.forEach(function (r) {
       if (String(r[P.vigente]).trim() !== 'SIM') return;
       var id = String(r[P.id_pedido]).trim(), rev = pvRev_(r[P.revisao]);
@@ -236,8 +246,16 @@ function carregar(tk) {
         loc: [String(r[P.cidade] || '').trim(), String(r[P.uf] || '').trim()].filter(String).join(' - '),
         dp: _dataBr(r[P.data_pedido]), ent: _dataBr(r[P.data_entrega]),
         v: _r2(v), v40: _r2(v40), itens: itens,
-        dc: (function (x) { return Object.prototype.toString.call(x) === '[object Date]' ? Utilities.formatDate(x, FUSO, 'dd/MM/yyyy HH:mm') : String(x || '').trim(); })(r[P.data_carga])
+        dc: (function (x) { return Object.prototype.toString.call(x) === '[object Date]' ? Utilities.formatDate(x, FUSO, 'dd/MM/yyyy HH:mm') : String(x || '').trim(); })(r[P.data_carga]),
+        rt: String(r[P.tipo] || '').trim() === 'RETRABALHO', org: String(r[P.os_origem] || '').trim()
       };
+      /* faturamento: por OS (vale para qualquer revisão) + código */
+      var os = pvOs_(p.oc), fv = 0, comp1 = true, algum = false;
+      itens.forEach(function (x) {
+        var f = FAT[os + '|' + x.c]; x.fq = f ? _r2(f.q) : 0; x.fv = f ? _r2(f.v) : 0;
+        fv += x.fv; if (x.fq > 0) algum = true; if (x.fq + 0.0001 < x.q) comp1 = false;
+      });
+      p.fv40 = _r2(fv); p.fs = !algum ? '' : (comp1 && itens.length ? 'COMPLETO' : 'PARCIAL');
       p.sv = v < 1;
       p.cd = DYN.cod[p.cp] || _dynPorNome(DYN, nome) ||
              (!p.sv && itens.length ? String(itens[0].c).substring(0, 3) : '') || p.cp;
@@ -256,7 +274,9 @@ function carregar(tk) {
     out.sitTab = _situacaoTabelas();
   }
   if (s.t.indexOf('up') >= 0) out.logs = _ultimosLogs(s.p === 'oculto');
-  if (s.t.indexOf('dia') < 0 && s.t.indexOf('mes') < 0 && s.t.indexOf('cli') < 0 && s.t.indexOf('aud') < 0) out.P = [];
+  if (s.t.indexOf('reg') >= 0 && !out.logs.length) out.logs = _ultimosLogs(s.p === 'oculto');
+  if (s.t.indexOf('flan') >= 0) out.fat = _lancamentos();
+  if (!s.t.some(function (k) { return /^(dia|mes|cli|rdia|rmes|rcli|aud|flan)$/.test(k); })) out.P = [];
   out.ms = Date.now() - t0;
   return out;
 }
@@ -362,6 +382,138 @@ function _situacaoTabelas() {
   return o;
 }
 
+function _dhNum(s) { var m = /(\d{2})\/(\d{2})\/(\d{4})\s*(\d{2})?:?(\d{2})?/.exec(String(s)); return m ? Number(m[3] + m[2] + m[1] + (m[4] || '00') + (m[5] || '00')) : 0; }
+
+/* ====================== FATURAMENTO (V3.0) ====================== */
+
+function _abaFat() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ABA_FAT);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_FAT);
+    sh.getRange(1, 1, 1, COLS_FAT.length).setValues([COLS_FAT]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.getRange(1, 3, sh.getMaxRows(), 1).setNumberFormat('@');
+    sh.getRange(1, 6, sh.getMaxRows(), 5).setNumberFormat('@');
+  }
+  return sh;
+}
+function _faturadoPorItem() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FAT), m = {};
+  if (!sh || sh.getLastRow() < 2) return m;
+  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_FAT.length).getValues().forEach(function (r) {
+    var k = String(r[6]).trim() + '|' + String(r[9]).trim();
+    m[k] = m[k] || { q: 0, v: 0 }; m[k].q += Number(r[12]) || 0; m[k].v += Number(r[15]) || 0;
+  });
+  return m;
+}
+function _lancamentos() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_FAT);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var n = Math.min(4000, sh.getLastRow() - 1);
+  return sh.getRange(sh.getLastRow() - n + 1, 1, n, COLS_FAT.length).getValues().map(function (r) {
+    return { dh: _txtDh(r[0]), u: String(r[1]), nf: String(r[2]), dnf: _dataBr(r[3]), id: String(r[4]), oc: String(r[5]),
+             cli: String(r[8]), c: String(r[9]), d: String(r[10]), qp: Number(r[11]) || 0, qf: Number(r[12]) || 0,
+             up: Number(r[13]) || 0, uf: Number(r[14]) || 0, tf: Number(r[15]) || 0, alt: String(r[16]) === 'SIM' };
+  }).reverse();
+}
+function _txtDh(v) { return Object.prototype.toString.call(v) === '[object Date]' ? Utilities.formatDate(v, FUSO, 'dd/MM/yyyy HH:mm') : String(v || ''); }
+
+/** Lançamento do faturista. L = {id, oc, cli, nf, dnf (dd/MM/aaaa), itens:[{c,d,qp,qf,up,uf}]} */
+function faturar(tk, L) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('flan') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Faturamento.' };
+  var nf = String(L.nf || '').replace(/\D/g, '');
+  if (!nf) return { ok: false, msg: 'Informe o número da nota fiscal.' };
+  if (!/^\d{2}\/\d{2}\/\d{4}$/.test(String(L.dnf || ''))) return { ok: false, msg: 'Informe a data da nota.' };
+  var its = (L.itens || []).filter(function (x) { return Number(x.qf) > 0; });
+  if (!its.length) return { ok: false, msg: 'Selecione ao menos um item com quantidade.' };
+  var lock = LockService.getScriptLock(); lock.tryLock(20000);
+  try {
+    var sh = _abaFat(), agora = _agora(), os = pvOs_(L.oc), alt = 0, tot = 0;
+    var linhas = its.map(function (x) {
+      var qf = Number(x.qf), uf = Number(x.uf), up = Number(x.up) || 0, qp = Number(x.qp) || 0;
+      var a = Math.abs(uf - up) > 0.005 || Math.abs(qf - qp) > 0.0001;
+      if (a) alt++; tot += qf * uf;
+      return [agora, s.n, nf, L.dnf, L.id, L.oc, os, pvRev_(String(L.oc).slice(-2)), L.cli, x.c, x.d, qp, qf, up, uf,
+              Math.round(qf * uf * 100) / 100, a ? 'SIM' : 'NAO'];
+    });
+    sh.getRange(sh.getLastRow() + 1, 1, linhas.length, COLS_FAT.length).setValues(linhas);
+    _log(s, 'FATURAMENTO', 'NF ' + nf + ' · ' + L.oc + ' ' + L.cli + ' · ' + its.length + ' item(ns) · R$ ' + (Math.round(tot * 100) / 100) + (alt ? ' · ' + alt + ' alterado(s)' : ''));
+    return { ok: true, msg: 'NF ' + nf + ' registrada: ' + its.length + ' item(ns)' + (alt ? ' · ' + alt + ' com valor/quantidade diferente do pedido' : '') + '.' };
+  } finally { lock.releaseLock(); }
+}
+
+/* ====================== E-MAILS DIÁRIOS (V3.0) ====================== */
+
+function ativarV3() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_ACESSOS);
+  if (sh && sh.getLastRow() > 1) {
+    var v = sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues();
+    sh.getRange(2, 9, v.length, 1).setValues(v.map(function (r) {
+      var a = String(r[8] || '').toUpperCase();
+      if (/PEDIDOS/.test(a)) { if (!/FATURAMENTO/.test(a)) a += ', FATURAMENTO'; if (!/REVISOES/.test(a)) a += ', REVISOES'; }
+      if (/TABELAS/.test(a) && !/REVISOES/.test(a)) a += ', REVISOES';
+      return [a.replace(/^,\s*/, '')];
+    }));
+  }
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (/^(emailFaturamentoDia|emailRevisoesDia)$/.test(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('emailFaturamentoDia').timeBased().everyDays(1).atHour(18).create();
+  ScriptApp.newTrigger('emailRevisoesDia').timeBased().everyDays(1).atHour(18).create();
+  _abaFat();
+  Logger.log('V3.0 pronta: aba Faturamento criada; e-mails diários de faturamento e de revisões às 18h.');
+  Logger.log('Coluna avisos: FATURAMENTO e REVISOES foram incluídos para quem recebia PEDIDOS/TABELAS.');
+}
+
+function emailFaturamentoDia() {
+  var hoje = Utilities.formatDate(new Date(), FUSO, 'dd/MM/yyyy');
+  var L = _lancamentos().filter(function (x) { return x.dh.indexOf(hoje) === 0; });
+  if (!L.length) return;
+  var ped = {}, tot = 0, nfs = {};
+  L.forEach(function (x) {
+    var p = ped[x.oc] = ped[x.oc] || { oc: x.oc, cli: x.cli, it: [], v: 0 };
+    p.it.push(x); p.v += x.tf; tot += x.tf; nfs[x.nf] = 1;
+  });
+  var corpo = '<p style="margin:0 0 10px"><b>' + Object.keys(ped).length + '</b> pedido(s) · <b>' + Object.keys(nfs).length + '</b> nota(s) · valor Dynamics <b>' + _moeda(tot) +
+    '</b> · valor cheio <b>' + _moeda(tot * FATOR_CHEIO) + '</b></p>';
+  Object.keys(ped).forEach(function (k) {
+    var p = ped[k];
+    corpo += '<h3 style="margin:16px 0 6px;font-size:15px">' + p.oc + ' · ' + p.cli + ' · ' + _moeda(p.v) + '</h3>' +
+      _tab(['NF', 'Código', 'Descrição', 'Qtde', 'Unit. pedido', 'Unit. faturado', 'Total', 'Lançado por'], p.it.map(function (x) {
+        return [x.nf, x.c, x.d, x.qf + (x.qf !== x.qp ? ' de ' + x.qp : ''), _moeda(x.up), (x.alt ? '<b style="color:#D0121C">' : '') + _moeda(x.uf) + (x.alt ? '</b>' : ''), _moeda(x.tf), x.u];
+      }));
+  });
+  _email(_destinos('FATURAMENTO'), 'Faturamento do dia ' + hoje + ' · ' + _moeda(tot), 'Faturamento do dia ' + hoje, corpo);
+}
+
+function emailRevisoesDia() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_REVISOES);
+  if (!sh || sh.getLastRow() < 2) return;
+  var hoje = Utilities.formatDate(new Date(), FUSO, 'dd/MM/yyyy'), g = {};
+  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_REVISOES.length).getValues().forEach(function (r) {
+    var dh = _txtDh(r[0]); if (dh.indexOf(hoje) !== 0) return;
+    var k = String(r[1]).trim(); (g[k] = g[k] || { oc: k, de: pvRev_(r[2]), para: pvRev_(r[3]), l: [] }).l.push(r);
+  });
+  var ks = Object.keys(g); if (!ks.length) return;
+  var ped = {};
+  var shP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PEDIDOS), P = _idx(COLS_PEDIDOS);
+  shP.getRange(2, 1, shP.getLastRow() - 1, COLS_PEDIDOS.length).getValues().forEach(function (r) {
+    if (String(r[P.vigente]).trim() === 'SIM') ped[String(r[P.oc]).trim()] = r;
+  });
+  var corpo = '<p style="margin:0 0 10px"><b>' + ks.length + '</b> pedido(s) revisado(s) hoje.</p>';
+  ks.forEach(function (k) {
+    var x = g[k], r = ped[k], sem = x.l.some(function (l) { return /SEM TROCA/.test(l[5]); });
+    corpo += '<h3 style="margin:16px 0 4px;font-size:15px">' + k + (r ? ' · ' + (r[P.cliente] || '') + ' · ' + (r[P.revenda] || '') + ' · ' + _moeda(r[P.total_cheio]) : '') + '</h3>' +
+      '<p style="margin:0 0 6px;font-size:13px">' + (sem ? '<b style="color:#D0121C">ALTERADO SEM TROCA DE REVISÃO</b>' : 'Revisão ' + x.de + ' → ' + x.para) +
+      (r ? ' · entrega ' + _dataBr(r[P.data_entrega]) : '') + '</p>' +
+      _tab(['Tipo', 'Código', 'Descrição', 'De', 'Para'], x.l.filter(function (l) { return !/^ALERTA$/.test(l[4]); }).map(function (l) {
+        return [String(l[5]).toLowerCase(), l[6], l[7], _txtRev(l[8]), '<b>' + _txtRev(l[9]) + '</b>'];
+      }));
+  });
+  _email(_destinos('REVISOES'), 'Pedidos revisados hoje (' + hoje + ') · ' + ks.length, 'Pedidos revisados hoje', corpo);
+}
+
 /** V2.8 — a tela não aceita Date vindo do servidor (trava o carregamento):
     data vira texto dd/MM/aa, número continua número. */
 function _txtRev(v) {
@@ -380,6 +532,8 @@ function _revisoes() {
     var k = oc + '|' + para, dh = r[0];
     if (Object.prototype.toString.call(dh) === '[object Date]') dh = Utilities.formatDate(dh, FUSO, 'dd/MM/yyyy HH:mm');
     dh = String(dh);
+    if (m[k] && m[k].dh !== dh && _dhNum(dh) > _dhNum(m[k].dh)) delete m[k];     // fica o lote mais recente
+    if (m[k] && m[k].dh !== dh) return;
     var x = m[k] = m[k] || { de: pvRev_(r[2]), para: para, dh: dh, dias: _diasDesde(dh.substring(0, 10)), ch: [] };
     x.ch.push({ t: String(r[5] || ''), c: String(r[6] || '').trim(), d: String(r[7] || ''),
                 de: _txtRev(r[8]), pa: _txtRev(r[9]) });
