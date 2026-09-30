@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V2.7
+ * Arquivo: App              Versão: V2.8
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -362,6 +362,14 @@ function _situacaoTabelas() {
   return o;
 }
 
+/** V2.8 — a tela não aceita Date vindo do servidor (trava o carregamento):
+    data vira texto dd/MM/aa, número continua número. */
+function _txtRev(v) {
+  if (v === null || v === undefined) return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') return Utilities.formatDate(v, FUSO, 'dd/MM/yy');
+  return typeof v === 'number' ? v : String(v);
+}
+
 /** V2.5 — última revisão de cada OS: o que mudou (aba Revisoes). */
 function _revisoes() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_REVISOES), m = {};
@@ -374,7 +382,7 @@ function _revisoes() {
     dh = String(dh);
     var x = m[k] = m[k] || { de: pvRev_(r[2]), para: para, dh: dh, dias: _diasDesde(dh.substring(0, 10)), ch: [] };
     x.ch.push({ t: String(r[5] || ''), c: String(r[6] || '').trim(), d: String(r[7] || ''),
-                de: r[8] === null ? '' : r[8], pa: r[9] === null ? '' : r[9] });
+                de: _txtRev(r[8]), pa: _txtRev(r[9]) });
   });
   return m;
 }
