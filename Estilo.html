@@ -1,5 +1,5 @@
 <style>
-/* FLUXO VENDA DYNAMICS · Estilo V3.1 */
+/* FLUXO VENDA DYNAMICS · Estilo V3.3 */
 :root{
   --g0:#0F1216;--g1:#15181D;--g2:#1E232B;--g3:#2A313B;--g4:#3A424E;
   --vm:#D0121C;--vm2:#A60E16;
@@ -370,6 +370,35 @@ button,input,select{font:inherit;color:inherit}
 .fok{color:var(--vd);font-weight:700}.falt{color:var(--am)}
 .fbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}.fbar .gap{flex:1}
 .fbar .fin{width:130px;text-align:left}
+
+/* ===== V3.3 · alinhamento dos dias e celular ===== */
+.bd-h{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px 22px}
+.bd-d{font-size:21px}
+.bd-d small{font-size:11px}
+.bd-k{display:grid;grid-template-columns:70px 150px 150px 250px;gap:0 16px;margin-left:0}
+.bd-k b{font-size:19px}
+@media (max-width:1180px){.bd-h{grid-template-columns:1fr}.bd-k{grid-template-columns:70px 150px 150px 1fr}}
+@media (max-width:880px){
+  .nav{flex-wrap:wrap;padding:8px 10px;gap:6px}
+  .nav .pil{width:100%;overflow-x:auto;scrollbar-width:none}
+  .nav .pil::-webkit-scrollbar{display:none}
+  .nav .pil button{padding:7px 11px;font-size:13px;flex:1 0 auto}
+  .nav .pil.sub{padding:0 4px}
+  .nav .pil.sub button{flex:1 1 0}
+  .bd-h{padding:12px 14px;gap:8px}
+  .bd-d{font-size:18px}.bd-d small{font-size:10px;letter-spacing:.06em}
+  .bd-k{grid-template-columns:auto 1fr 1fr;gap:8px 12px}
+  .bd-k div{font-size:9.5px;letter-spacing:.05em}
+  .bd-k b{font-size:15px}
+  .bd-k div:nth-child(4){grid-column:1/-1}
+  .fl{gap:6px;padding:8px}
+  .fl .lb{display:none}
+  .fl select,.fl input{height:38px;font-size:13px;padding:0 8px}
+  .fl select{flex:1 1 40%;min-width:0}
+  .fl input[type=date]{flex:1 1 40%;min-width:0}
+  .fl .btn{flex:1 1 auto;padding:8px 10px;font-size:12.5px;min-width:0}
+  .fl .seg{flex:1 1 100%}.fl .seg button{flex:1}
+}
 
 @media print{
   .top,.nav,.fl,.toast,.conf,.pc-tg,.pc-ck,.no-pr,.seg,.bd-h button{display:none!important}
