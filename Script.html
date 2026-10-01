@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V3.1
+   FLUXO VENDA DYNAMICS · Script V3.4
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -231,12 +231,21 @@ function ir(id){
   montarNav();
   var w = document.getElementById('wrap');
   w.classList.toggle('fatw', /^f/.test(id));
+  setTimeout(botoesBusca, 0);
   try {
     w.innerHTML = ({ dia: telaDia, mes: telaMes, cli: telaCli, rdia: telaDia, rmes: telaMes, rcli: telaCli,
                      aud: telaAud, up: telaUp, reg: telaReg, flan: telaFLan, fdash: telaFDash })[id]();
   } catch (e){
     w.innerHTML = '<div class="vazio"><b>Erro ao montar a tela</b><p>' + esc(e.message || e) + '</p></div>';
   }
+}
+function botoesBusca(){
+  [].forEach.call(document.querySelectorAll('#wrap input[type=search]'), function(inp){
+    if (inp.id === 'bDia' || (inp.nextElementSibling && inp.nextElementSibling.classList.contains('bbtn'))) return;
+    var b = document.createElement('button'); b.className = 'btn dk bbtn'; b.textContent = 'Buscar';
+    b.onclick = function(){ inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); if (inp.onsearch) inp.onsearch(); };
+    inp.parentNode.insertBefore(b, inp.nextSibling);
+  });
 }
 function selMes(atual, fn, comTodos){
   return '<select onchange="' + fn + '(this.value)">' + (comTodos ? '<option value="">Todos os meses</option>' : '') +
@@ -254,6 +263,10 @@ function cartao(p, comCk){
   var pz = prazo(p.ent), os = p.os || ('ERP ' + p.erp);
   var mud = {}; if (p.alt) p.alt.ch.forEach(function(c){ if (c.c) mud[c.c] = c.t; });
   var itens = p.itens.map(function(x){ return itemLinha(x, mud[x.c], p.fs); }).join('');
+  if (p.alt) p.alt.ch.forEach(function(c){
+    if (!/EXCLU/.test(c.t) || !c.c) return;
+    itens += '<tr class="exc"><td class="cd">' + esc(c.c) + '</td><td class="ds"><i class="tg ex">excluído rev ' + esc(p.alt.para) + '</i> ' + esc(c.d) + '</td><td class="r num">' + esc(fmtRv(c.de)) + '</td><td class="r num">—</td><td colspan="' + (p.fs ? 4 : 3) + '" class="sm">não soma no pedido</td></tr>';
+  });
   var n = p.itens.length;
   return '<div class="pc' + (SEL[p.id] ? ' sel' : '') + '" id="pc_' + esc(p.id) + '">' +
     '<div class="pc-l">' +
@@ -277,22 +290,33 @@ function cartao(p, comCk){
     '<div class="pc-r"><table class="it"><thead><tr><th>Código</th><th>Descrição</th><th class="r">Qtde × unit.</th><th class="r">Total</th><th>Contra tabela</th><th class="r">Preço tabela</th><th class="r">Diferença</th>' + (p.fs ? '<th class="r">Faturado</th>' : '') + '</tr></thead><tbody>' +
       (itens || '<tr><td colspan="8">Sem itens lidos.</td></tr>') + '</tbody></table></div></div>';
 }
+var GRP_REV = [['EXCLU', 'Excluídos', 'ex'], ['INCLU', 'Incluídos', 'in'], ['QUANT', 'Quantidade alterada', 'al'], ['PRE', 'Preço alterado', 'al'], ['DESCRI', 'Descrição alterada', 'al'],
+  ['ENTREGA', 'Data de entrega', 'dt'], ['CARREG', 'Carregamento', 'dt'], ['', 'Comercial / outros', 'cm']];
+function gruposRev(ch){
+  var g = {};
+  ch.forEach(function(c){
+    if (/SEM TROCA|SEM ANTERIOR|SEM MUDANCA/.test(c.t)) return;
+    var k = GRP_REV.filter(function(x){ return !x[0] || c.t.toUpperCase().indexOf(x[0]) >= 0; })[0];
+    (g[k[1]] = g[k[1]] || { cl: k[2], l: [] }).l.push(c);
+  });
+  return GRP_REV.map(function(x){ return g[x[1]] ? [x[1], g[x[1]]] : null; }).filter(Boolean);
+}
+function linhaRev(c){
+  var ex = /EXCLU/.test(c.t), inc = /INCLU/.test(c.t);
+  var vl = ex ? '<s>' + esc(fmtRv(c.de)) + '</s>' : inc ? '<b>' + esc(fmtRv(c.pa)) + '</b>' : (c.de !== '' || c.pa !== '' ? esc(fmtRv(c.de)) + ' → <b>' + esc(fmtRv(c.pa)) + '</b>' : '');
+  if (!c.c) return '<div class="rvl nc"><span class="rvv">' + (/ENTREGA|CARREG/.test(c.t) ? '' : '<span class="rvd">' + esc(c.t.toLowerCase()) + ' · </span>') + vl + '</span></div>';
+  return '<div class="rvl">' + (c.c ? '<code>' + esc(c.c) + '</code>' : '<code>—</code>') + '<span class="rvd">' + esc(c.d || c.t.toLowerCase()) + '</span><span class="rvv">' + vl + '</span></div>';
+}
 function blocoRev(p){
   if (!p.alt) return '';
   var a = p.alt, rec = a.dias !== null && a.dias <= 7;
   var semNum = a.ch.some(function(c){ return /SEM TROCA/.test(c.t); }), semAnt = a.ch.some(function(c){ return /SEM ANTERIOR/.test(c.t); });
   if (semAnt) return '<div class="rvb alerta"><b>REV ' + esc(a.para) + ' RECEBIDA SEM A REVISÃO ANTERIOR NA BASE</b><span>' + esc(a.dh) + ' · mudanças não puderam ser apuradas</span></div>';
-  if (semNum){
-    var l2 = a.ch.filter(function(c){ return !/SEM TROCA/.test(c.t); });
-    return '<div class="rvb erro"><b>ALTERADO SEM TROCA DE REVISÃO</b><span>' + esc(a.dh) + ' · o conteúdo mudou e a revisão continuou ' + esc(a.para) + ' no ForWood · ' + l2.length + ' mudança(s)</span>' +
-      '<ul>' + l2.slice(0, 8).map(function(c){ return '<li><em>' + esc(c.t.toLowerCase()) + '</em>' + (c.c ? ' <code>' + esc(c.c) + '</code>' : '') + (c.de !== '' || c.pa !== '' ? ' · ' + esc(fmtRv(c.de)) + ' → <b>' + esc(fmtRv(c.pa)) + '</b>' : '') + '</li>'; }).join('') + '</ul></div>';
-  }
-  var sem = a.ch.length === 1 && /SEM MUDANCA/.test(a.ch[0].t);
-  return '<div class="rvb' + (rec ? ' novo' : '') + '"><b>' + (rec ? 'ALTERADO · ' : '') + 'REV ' + esc(a.de) + ' → ' + esc(a.para) + '</b><span>' + esc(a.dh) + (sem ? ' · sem mudança de item' : ' · ' + a.ch.length + ' mudança(s)') + '</span>' +
-    (sem ? '' : '<ul>' + a.ch.slice(0, 8).map(function(c){
-      var o = c.t.toLowerCase().replace('alterado', 'alterada');
-      return '<li><em>' + esc(o) + '</em>' + (c.c ? ' <code>' + esc(c.c) + '</code>' : '') + (c.de !== '' || c.pa !== '' ? ' · ' + esc(fmtRv(c.de)) + ' → <b>' + esc(fmtRv(c.pa)) + '</b>' : '') + '</li>'; }).join('') +
-      (a.ch.length > 8 ? '<li>… e mais ' + (a.ch.length - 8) + '</li>' : '') + '</ul>') + '</div>';
+  var gr = gruposRev(a.ch), n = gr.reduce(function(t, g){ return t + g[1].l.length; }, 0);
+  if (!n) return '<div class="rvb"><b>REV ' + esc(a.de) + ' → ' + esc(a.para) + '</b><span>' + esc(a.dh) + ' · sem mudança de item</span></div>';
+  return '<div class="rvb' + (semNum ? ' erro' : rec ? ' novo' : '') + '"><b>' + (semNum ? 'ALTERADO SEM TROCA DE REVISÃO · REV ' + esc(a.para) : (rec ? 'ALTERADO · ' : '') + 'REV ' + esc(a.de) + ' → ' + esc(a.para)) + '</b>' +
+    '<span>' + esc(a.dh) + ' · ' + n + ' mudança(s)</span>' +
+    gr.map(function(g){ return '<div class="rvg"><div class="rvh ' + g[1].cl + '">' + g[0] + ' <i>' + g[1].l.length + '</i></div>' + g[1].l.map(linhaRev).join('') + '</div>'; }).join('') + '</div>';
 }
 function fmtRv(v){ return typeof v === 'number' ? (v % 1 ? rs2(v) : String(v)) : String(v == null ? '' : v); }
 function bdgFat(p){ return p.fs === 'COMPLETO' ? '<i class="fat ok">FATURADO COMPLETO</i>' : p.fs === 'PARCIAL' ? '<i class="fat pa">FATURADO PARCIAL</i>' : ''; }
@@ -329,7 +353,7 @@ function emBlocos(lista, comCk, campo){
 function cDia(){ return F.fd === 'dc' ? 'dcd' : 'dp'; }
 function cMes(){ return F.fd === 'dc' ? 'mc' : 'me'; }
 function blocosTodos(f){ [].forEach.call(document.querySelectorAll('#wrap .bd'), function(b){ b.classList.toggle('fe', f); }); }
-function limparDia(){ var d = F.fd; F.q = ''; F.todo = false; F.rev = false; F.mes = MESES_D[0] || ''; var l = PV(); F.dia = l.length ? l[0][cDia()] || l[0].dp : hojeBr(); ir(T('dia')); }
+function limparDia(){ F.dq = ''; F.rev = false; F.dm = ''; F.ate = ''; var l = PV(); F.dia = l.length ? l[0][cDia()] || l[0].dp : hojeBr(); ir(T('dia')); }
 function buscar(lista, q){
   q = norm(q).trim(); if (!q) return lista;
   var qd = q.replace(/\D/g, '');
@@ -338,37 +362,55 @@ function buscar(lista, q){
 
 /* ============================ DIA ============================ */
 var DIA_HTML = '';
+function diaBase(){
+  var c = cDia(), L = PV();
+  if (F.dm === '*') return L;
+  if (F.dm) return L.filter(function(p){ return p[cMes()] === F.dm; });
+  var a = chave(F.dia), b = F.ate ? chave(F.ate) : a;
+  if (b < a){ var t = a; a = b; b = t; }
+  return L.filter(function(p){ var k = chave(p[c] || ''); return k >= a && k <= b; });
+}
+function diaTitulo(){
+  if (F.dm === '*') return 'Todos os meses';
+  if (F.dm) return mesNome(F.dm);
+  return F.ate && F.ate !== F.dia ? F.dia + ' a ' + F.ate : extA(F.dia);
+}
 function telaDia(){
-  var lista, tit;
-  var base = F.mes ? PV().filter(function(p){ return p[cMes()] === F.mes; }) : PV();
+  if (F.dm === undefined) F.dm = '';
+  var lista, tit = '', base = diaBase();
   if (F.rev){ lista = PV().filter(function(p){ return p.alt && p.alt.dias !== null && p.alt.dias <= 7; }); tit = 'Pedidos alterados por revisão nos últimos 7 dias · ' + lista.length; }
-  else if (F.q){ lista = buscar(base, F.q); tit = 'Busca “' + esc(F.q) + '” em ' + mesNome(F.mes) + ' · ' + lista.length + ' pedido(s)'; }
-  else if (F.todo){ lista = base; tit = 'Todos os dias de ' + mesNome(F.mes); }
-  else { lista = PV().filter(function(p){ return p[cDia()] === F.dia; }); tit = ''; }
-  var h = '<div class="fl"><select onchange="F.fd=this.value;ir(T(\'dia\'))" title="Qual data usar"><option value="dp"' + (F.fd === 'dp' ? ' selected' : '') + '>Data do pedido</option><option value="dc"' + (F.fd === 'dc' ? ' selected' : '') + '>Entrada no app</option></select>' +
+  else if (F.dq){ lista = buscar(base, F.dq); tit = 'Busca “' + esc(F.dq) + '” em ' + diaTitulo() + ' · ' + lista.length + ' pedido(s)'; }
+  else { lista = base; if (F.dm || (F.ate && F.ate !== F.dia)) tit = diaTitulo() + ' · ' + lista.length + ' pedido(s)'; }
+  var h = '<div class="fl">' +
+    '<select onchange="F.fd=this.value;ir(T(\'dia\'))" title="Qual data usar"><option value="dp"' + (F.fd === 'dp' ? ' selected' : '') + '>Data do pedido</option><option value="dc"' + (F.fd === 'dc' ? ' selected' : '') + '>Entrada no app</option></select>' +
     '<button class="btn sq" onclick="passaDia(-1)" title="Dia anterior">‹</button>' +
-    '<input type="date" value="' + isoDe(F.dia) + '" onchange="F.dia=deIso(this.value);F.q=\'\';F.todo=false;F.mes=mesDe(F.dia)||F.mes;ir(T(\'dia\'))">' +
+    '<span class="lb">De</span><input type="date" value="' + (F.dm ? '' : isoDe(F.dia)) + '" onchange="diaDe(this.value)">' +
+    '<span class="lb">Até</span><input type="date" value="' + (F.dm ? '' : isoDe(F.ate || F.dia)) + '" onchange="diaAte(this.value)">' +
     '<button class="btn sq" onclick="passaDia(1)" title="Próximo dia">›</button>' +
-    '<span class="lb">Mês</span>' + selMes(F.mes, 'fMes', true) +
-    '<button class="btn' + (F.todo ? ' on' : '') + '" onclick="F.todo=!F.todo;F.q=\'\';F.rev=false;ir(T(\'dia\'))">Mês inteiro</button>' +
-    '<button class="btn' + (F.rev ? ' on' : '') + '" onclick="F.rev=!F.rev;F.q=\'\';ir(T(\'dia\'))">Revisados' + (nRev() ? ' <span class="pill">' + nRev() + '</span>' : '') + '</button>' +
-    '<input type="search" placeholder="Buscar OS ou cliente" value="' + esc(F.q) + '" onkeydown="if(event.key===\'Enter\'){F.q=this.value;ir(T(\'dia\'))}" onsearch="F.q=this.value;ir(T(\'dia\'))">' +
+    '<span class="lb">Mês</span><select onchange="F.dm=this.value;F.rev=false;ir(T(\'dia\'))"><option value=""' + (!F.dm ? ' selected' : '') + '>— pelas datas —</option><option value="*"' + (F.dm === '*' ? ' selected' : '') + '>Todos os meses</option>' +
+      MESES_D.map(function(m){ return '<option value="' + m + '"' + (m === F.dm ? ' selected' : '') + '>' + mesNome(m) + '</option>'; }).join('') + '</select>' +
+    '<button class="btn' + (F.rev ? ' on' : '') + '" onclick="F.rev=!F.rev;ir(T(\'dia\'))">Revisados' + (nRev() ? ' <span class="pill">' + nRev() + '</span>' : '') + '</button>' +
+    '<span class="bsc"><input type="search" id="bDia" placeholder="Buscar OS ou cliente" value="' + esc(F.dq || '') + '" onkeydown="if(event.key===\'Enter\'){F.dq=this.value;F.rev=false;ir(T(\'dia\'))}">' +
+      '<button class="btn dk" onclick="F.dq=document.getElementById(\'bDia\').value;F.rev=false;ir(T(\'dia\'))">Buscar</button>' + (F.dq ? '<button class="btn" onclick="F.dq=\'\';ir(T(\'dia\'))" title="Limpar busca">✕</button>' : '') + '</span>' +
     '<button class="btn" onclick="blocosTodos(true)">Recolher dias</button><button class="btn" onclick="blocosTodos(false)">Expandir dias</button><button class="btn" onclick="limparDia()">Limpar</button>' +
     '<button class="btn red" onclick="imprimirDia()">PDF</button><button class="btn" onclick="excelPedidos(DIA_L,\'pedidos\')">Excel</button></div>';
   window.DIA_L = lista;
   if (tit) h += '<div class="sec">' + tit + '</div>';
   if (!lista.length){
     var viz = vizinhos(F.dia);
-    h += '<div class="vazio"><b>' + (F.q ? 'Nada encontrado' : 'Nenhum pedido em ' + extA(F.dia)) + '</b><p>' +
-      (F.q ? 'Confira o número da OS ou o nome do cliente. A busca olha o mês escolhido; escolha “Todos os meses” para buscar em tudo.' : 'Escolha outra data no calendário.') + '</p>' +
-      viz.map(function(d){ return '<button class="btn" onclick="F.dia=\'' + d + '\';ir(T(\'dia\'))">' + d + '</button>'; }).join('') + '</div>';
+    h += '<div class="vazio"><b>' + (F.dq ? 'Nada encontrado em ' + diaTitulo() : 'Nenhum pedido em ' + diaTitulo()) + '</b><p>' +
+      (F.dq ? 'A busca olha o período escolhido.' : 'Escolha outra data ou período.') + '</p>' +
+      (F.dq && F.dm !== '*' ? '<button class="btn dk" onclick="F.dm=\'*\';ir(T(\'dia\'))">Buscar em todos os meses</button> ' : '') +
+      (F.dq ? '' : viz.map(function(d){ return '<button class="btn" onclick="F.dia=\'' + d + '\';F.ate=\'\';F.dm=\'\';ir(T(\'dia\'))">' + d + '</button>'; }).join('')) + '</div>';
     return h;
   }
   h += emBlocos(lista, false, cDia());
   return h;
 }
+function diaDe(v){ if (!v) return; F.dia = deIso(v); if (F.ate && chave(F.ate) < chave(F.dia)) F.ate = ''; F.dm = ''; F.rev = false; ir(T('dia')); }
+function diaAte(v){ F.ate = v ? deIso(v) : ''; F.dm = ''; F.rev = false; ir(T('dia')); }
 function nRev(){ return PV().filter(function(p){ return p.alt && p.alt.dias !== null && p.alt.dias <= 7; }).length; }
-function fMes(v){ F.mes = v; if (/dia$/.test(TELA) && !F.q) F.todo = true; if (/mes$/.test(TELA)) F.agr = v ? 'd' : 'm'; ir(TELA); }
+function fMes(v){ F.mes = v; if (/mes$/.test(TELA)) F.agr = v ? 'd' : 'm'; ir(TELA); }
 function vizinhos(d){
   var k = chave(d), ds = {}, c = cDia(); PV().forEach(function(p){ if (p[c]) ds[p[c]] = chave(p[c]); });
   var l = Object.keys(ds), ant = null, dep = null;
@@ -378,12 +420,12 @@ function vizinhos(d){
 function passaDia(n){
   var d = dObj(F.dia) || new Date(); d.setDate(d.getDate() + n);
   F.dia = ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) + '/' + String(d.getFullYear()).slice(-2);
-  F.q = ''; F.todo = false; F.mes = mesDe(F.dia); ir(T('dia'));
+  F.dq = ''; F.ate = ''; F.dm = ''; F.rev = false; ir(T('dia'));
 }
 function imprimirDia(){
   var l = window.DIA_L || [];
   if (!l.length){ toast('Nada para imprimir.'); return; }
-  var t = F.q ? 'Busca: ' + F.q + ' · ' + mesNome(F.mes) : F.todo ? 'Pedidos de ' + mesNome(F.mes) : 'Pedidos de ' + extA(F.dia);
+  var t = F.rev ? 'Pedidos revisados nos últimos 7 dias' : (F.dq ? 'Busca: ' + F.dq + ' · ' : 'Pedidos de ') + diaTitulo();
   imprimir(t, emBlocos(l, false, cDia()), 'IMPRESSÃO DIA', t + ' · ' + l.length + ' pedidos');
 }
 
@@ -413,7 +455,7 @@ function telaMes(){
   if (F.agr === 'd'){
     base.forEach(function(p){ g[p.dp] = (g[p.dp] || 0) + p.v; });
     ch = Object.keys(g).sort(function(a, b){ return chave(a) - chave(b); }).map(function(d){
-      return { k: d, r: d.substring(0, 2), v: g[d], go: "F.dia='" + d + "';F.q='';F.todo=false;ir(T('dia'))" }; });
+      return { k: d, r: d.substring(0, 2), v: g[d], go: "F.dia='" + d + "';F.dq='';F.ate='';F.dm='';F.rev=false;ir(T('dia'))" }; });
     titG = 'Vendido por dia do pedido · ' + mesNome(F.mes);
     if (ch.length > 45) ch = ch.slice(-45);
   } else {
@@ -460,7 +502,7 @@ function telaMes(){
   var cls = Object.keys(cl).map(function(k){ return cl[k]; }).sort(function(a, b){ return b.v - a.v; }).slice(0, 12);
   var cmx2 = cls.length ? cls[0].v : 1;
   h += '<div class="m2 ali"><div class="cx"><h3>Pedidos ' + (F.q ? '· busca “' + esc(F.q) + '”' : '') + '<span class="sp"></span>' + lista.length + '</h3><div class="tbw alto"><table class="tb"><thead><tr><th>Data</th><th>OS</th><th>Cliente</th><th>Entrega</th><th class="r">Valor cheio</th><th class="r">Dynamics</th><th>Contra tabela</th></tr></thead><tbody>' +
-    lista.map(function(p){ return '<tr class="lk" onclick="F.dia=\'' + p.dp + '\';F.q=\'' + esc(p.os || p.erp) + '\';F.mes=\'' + p.me + '\';ir(T(\'dia\'))"><td class="num">' + p.dp + '</td><td class="cd">' + esc(p.os || 'ERP ' + p.erp) + '</td><td><b>' + esc(p.cli) + '</b><br><small style="color:#8C96A4">' + esc(p.rv) + '</small></td><td class="num">' + p.ent + '</td><td class="r num"><b>' + rs(p.v) + '</b></td><td class="r num">' + rs(p.v40) + '</td><td>' + bdgDesvio(p) + '</td></tr>'; }).join('') +
+    lista.map(function(p){ return '<tr class="lk" onclick="F.dia=\'' + p.dp + '\';F.dq=\'' + esc(p.os || p.erp) + '\';F.dm=\'*\';F.ate=\'\';F.rev=false;ir(T(\'dia\'))"><td class="num">' + p.dp + '</td><td class="cd">' + esc(p.os || 'ERP ' + p.erp) + '</td><td><b>' + esc(p.cli) + '</b><br><small style="color:#8C96A4">' + esc(p.rv) + '</small></td><td class="num">' + p.ent + '</td><td class="r num"><b>' + rs(p.v) + '</b></td><td class="r num">' + rs(p.v40) + '</td><td>' + bdgDesvio(p) + '</td></tr>'; }).join('') +
     '</tbody></table></div></div>' +
     '<div class="cx"><h3>Maiores clientes</h3><div class="lst">' + cls.map(function(c){ return '<div class="lin">' + marca(c.cd, c.cli) + '<span class="n">' + esc(c.cli) + ' · ' + c.n + '</span><span class="g"><i style="width:' + (c.v / cmx2 * 100) + '%"></i></span><b class="num">R$ ' + rs(c.v) + '</b></div>'; }).join('') + '</div></div></div>';
   return h;
@@ -471,7 +513,7 @@ function imprimirMes(){
   if (!MES_L.length){ toast('Nada para imprimir.'); return; }
   var sa = anosSel(), t = (MODO === 'r' ? 'Retrabalhos de ' : 'Pedidos de ') + (F.mes || !sa ? mesNome(F.mes) : sa.join(', ')) + (F.q ? ' · busca ' + F.q : '');
   var l = MES_L.slice().sort(function(a, b){ return a.k - b.k; }), s = somar(l);
-  var h = '<table class="tb lp"><thead><tr><th></th><th>Cliente</th><th>OS / ID</th><th>Loja</th><th>Cidade</th><th>Pedido</th><th class="r">Rev.</th><th class="r">Valor cheio</th><th class="r">Valor tabela</th><th class="r">Variação</th><th>Faturamento</th></tr></thead><tbody>' +
+  var h = '<table class="tb lp"><thead><tr><th></th><th>Cliente</th><th>OS / ID</th><th>Loja</th><th>Cidade</th><th>Data pedido</th><th class="r">Rev.</th><th class="r">Valor cheio</th><th class="r">Valor tabela</th><th class="r">Variação</th><th>Faturamento</th></tr></thead><tbody>' +
     l.map(function(p){ var d = p.comp - p.tab;
       return '<tr><td class="lgp">' + marca(p.cd, p.cli) + '</td><td><b>' + esc(p.cli) + '</b></td><td class="cd">' + esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.os || 'ERP ' + p.erp)) + '</td><td>' + esc(p.rv) + '</td><td>' + esc(p.loc) + '</td><td class="num">' + p.dp + '</td><td class="r num">' + (+p.rev || '') + (p.alt && p.alt.ch.some(function(c){ return /SEM TROCA/.test(c.t); }) ? ' ⚠' : '') + '</td>' +
         '<td class="r num"><b>' + rs2(p.v) + '</b></td><td class="r num">' + (p.tab ? rs2(p.tab) : '—') + '</td><td class="r num ' + (d > 0.005 ? 'tx-ac' : d < -0.005 ? 'tx-ab' : '') + '">' + (p.tab ? sn(d) + rs2(d) + ' (' + sn(d) + pc(Math.abs(d / p.tab * 100)) + '%)' : '—') + '</td><td>' + (p.fs ? p.fs.toLowerCase() : '') + '</td></tr>'; }).join('') +
