@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V3.4
+ * Arquivo: App              Versão: V3.5
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -57,8 +57,8 @@ function inc(nome) { return HtmlService.createHtmlOutputFromFile(nome).getConten
    UPLOAD inclui REGISTROS. */
 var TELAS_OK = { DIA: ['dia'], MES: ['mes'], 'MÊS': ['mes'], CLIENTES: ['cli'], VENDA: ['dia', 'mes', 'cli'],
   RETRABALHO: ['rdia', 'rmes', 'rcli'], RETRABALHOS: ['rdia', 'rmes', 'rcli'], AUDITORIA: ['aud'],
-  UPLOAD: ['up', 'reg'], REGISTROS: ['reg'], FATURAMENTO: ['flan', 'fdash'] };
-var TODAS_TELAS = ['dia', 'mes', 'cli', 'rdia', 'rmes', 'rcli', 'aud', 'up', 'reg', 'flan', 'fdash'];
+  UPLOAD: ['up', 'reg'], REGISTROS: ['reg'], FATURAMENTO: ['flan', 'fdash'], PCP: ['pcar'], CARTEIRA: ['pcar'] };
+var TODAS_TELAS = ['dia', 'mes', 'cli', 'rdia', 'rmes', 'rcli', 'aud', 'pcar', 'up', 'reg', 'flan', 'fdash'];
 var ABA_FAT = 'Faturamento';
 var COLS_FAT = ['data_hora','usuario','nf','data_nf','id_pedido','oc','os','revisao','cliente','codigo','descricao',
   'qtde_pedido','qtde_faturada','unit_pedido_40','unit_faturado_40','total_faturado_40','alterado'];
@@ -276,7 +276,7 @@ function carregar(tk) {
   if (s.t.indexOf('up') >= 0) out.logs = _ultimosLogs(s.p === 'oculto');
   if (s.t.indexOf('reg') >= 0 && !out.logs.length) out.logs = _ultimosLogs(s.p === 'oculto');
   if (s.t.indexOf('flan') >= 0) out.fat = _lancamentos();
-  if (!s.t.some(function (k) { return /^(dia|mes|cli|rdia|rmes|rcli|aud|flan)$/.test(k); })) out.P = [];
+  if (!s.t.some(function (k) { return /^(dia|mes|cli|rdia|rmes|rcli|aud|flan|pcar)$/.test(k); })) out.P = [];
   out.ms = Date.now() - t0;
   return out;
 }
