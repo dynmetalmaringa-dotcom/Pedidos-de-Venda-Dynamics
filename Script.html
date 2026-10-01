@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V3.7
+   FLUXO VENDA DYNAMICS · Script V3.8
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -87,7 +87,7 @@ function acentua(t){ t = String(t == null ? '' : t); ACENTOS.forEach(function(a)
 function situ(p){ return p.st ? p.st.s : p.fs === 'COMPLETO' ? 'FATURADO' : p.fs === 'PARCIAL' ? 'PARCIAL' : 'LIBERADO'; }
 function blocoSt(p){
   var b = '';
-  if (p.st) b = '<div class="stb ' + (p.st.s === 'CANCELADO' ? 'ca' : 'pa') + '"><b>' + p.st.s + '</b><span>' + esc(p.st.m) + (p.st.o ? ' · ' + esc(p.st.o) : '') + '</span><em>por ' + esc(p.st.u) + ' em ' + esc(p.st.dh) + '</em></div>';
+  if (p.st) b = '<div class="stb ' + (p.st.s === 'CANCELADO' ? 'ca' : 'pa') + '"><b>' + p.st.s + '</b><span>' + esc(p.st.m) + (p.st.o ? ' · ' + esc(p.st.o) : '') + '</span><em>' + (p.st.sol ? 'solicitado por <b>' + esc(p.st.sol) + '</b> · ' : '') + 'registrado por ' + esc(p.st.u) + ' em ' + esc(p.st.dh) + '</em></div>';
   if (!/^(dia|rdia|pcar)$/.test(TELA) || (EU.t || []).indexOf('dia') < 0 && (EU.t || []).indexOf('rdia') < 0 && (EU.t || []).indexOf('pcar') < 0) return b;
   var id = esc(p.id);
   return b + '<div class="stbt no-pr">' + (p.st ? '<button class="btn sm" onclick="dlgSt(\'' + id + '\',\'LIBERADO\')">Liberar de novo</button>' + (p.st.s === 'PARALISADO' ? '<button class="btn sm" onclick="dlgSt(\'' + id + '\',\'CANCELADO\')">Cancelar</button>' : '')
@@ -100,15 +100,19 @@ function dlgSt(id, st){
   d.innerHTML = '<div class="dlg-c"><h3>' + (st === 'LIBERADO' ? 'Liberar o pedido de novo' : st === 'CANCELADO' ? 'Cancelar pedido' : 'Paralisar pedido') + '</h3>' +
     '<p><b>' + esc(p.os || p.oc) + '</b> · ' + esc(p.cli) + (p.rv ? ' · ' + esc(p.rv) : '') + '</p>' +
     (st === 'LIBERADO' ? '' : '<label>Motivo<select id="dsM"><option value="">— escolha —</option>' + ms.map(function(m){ return '<option>' + esc(m) + '</option>'; }).join('') + '</select></label>') +
+    '<label>Solicitado por (obrigatório)<input id="dsS" maxlength="80" list="dsL" placeholder="Nome de quem pediu"></label><datalist id="dsL">' + solicitantes().map(function(n){ return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>' +
     '<label>Observação (opcional)<input id="dsO" maxlength="300" placeholder="Ex.: pedido refeito na OS 139.26.170"></label>' +
     '<div class="dlg-f"><button class="btn" onclick="document.getElementById(\'dlgSt\').remove()">Voltar</button><button class="btn ' + (st === 'CANCELADO' ? 'red' : 'dk') + '" id="dsB" onclick="salvaSt(\'' + esc(id) + '\',\'' + st + '\')">Confirmar</button></div></div>';
   document.body.appendChild(d);
 }
+function solicitantes(){ var o = {}; B.P.forEach(function(p){ if (p.st && p.st.sol) o[p.st.sol] = 1; }); return Object.keys(o).sort(); }
 function salvaSt(id, st){
   var p = B.P.filter(function(x){ return x.id === id; })[0], m = document.getElementById('dsM'), o = document.getElementById('dsO').value.trim();
+  var sl = document.getElementById('dsS').value.trim();
   if (m && !m.value){ toast('Escolha o motivo.'); return; }
+  if (!sl){ toast('Informe quem solicitou.'); document.getElementById('dsS').focus(); return; }
   var b = document.getElementById('dsB'); b.disabled = true; b.textContent = 'Gravando…';
-  srv('mudarStatus', [TK, { oc: p.oc, id: p.id, cli: p.cli, st: st, motivo: m ? m.value : '', obs: o }], function(r){
+  srv('mudarStatus', [TK, { oc: p.oc, id: p.id, cli: p.cli, st: st, motivo: m ? m.value : '', obs: o, sol: sl }], function(r){
     toast(r.msg); var d = document.getElementById('dlgSt'); if (d) d.remove();
     if (r.ok){ var os = String(p.oc).replace(/-\d{1,2}$/, ''); B.P.forEach(function(x){ if (String(x.oc).replace(/-\d{1,2}$/, '') === os){ if (r.st) x.st = r.st; else delete x.st; } }); ir(TELA); }
   }, function(e){ b.disabled = false; b.textContent = 'Confirmar'; toast('Falha: ' + e); });
