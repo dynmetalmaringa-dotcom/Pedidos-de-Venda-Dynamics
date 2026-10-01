@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V3.7
+ * Arquivo: App              Versão: V3.8
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -906,7 +906,7 @@ function situacaoApp() {
 
 /* ===================== V3.7 — CANCELADO / PARALISADO ===================== */
 var ABA_STATUS = 'StatusPedido', ABA_MOTIVOS = 'Motivos';
-var COLS_STATUS = ['data_hora', 'usuario', 'os', 'id_pedido', 'status', 'motivo', 'observacao'];
+var COLS_STATUS = ['data_hora', 'usuario', 'os', 'id_pedido', 'status', 'motivo', 'observacao', 'solicitante'];
 var MOTIVOS_PADRAO = [
   ['CANCELADO', 'Cliente desistiu'], ['CANCELADO', 'Pedido duplicado'], ['CANCELADO', 'Substituído por outro pedido'],
   ['CANCELADO', 'Obra / projeto cancelado pelo cliente'], ['CANCELADO', 'Erro de lançamento'], ['CANCELADO', 'Outro'],
@@ -914,7 +914,8 @@ var MOTIVOS_PADRAO = [
   ['PARALISADO', 'Aguardando aprovação comercial'], ['PARALISADO', 'Pendência financeira'], ['PARALISADO', 'Obra paralisada'], ['PARALISADO', 'Outro']];
 function _abaStatus() {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ABA_STATUS);
-  if (!sh) { sh = ss.insertSheet(ABA_STATUS); sh.getRange(1, 1, 1, COLS_STATUS.length).setValues([COLS_STATUS]).setFontWeight('bold'); sh.setFrozenRows(1); }
+  if (!sh) { sh = ss.insertSheet(ABA_STATUS); sh.setFrozenRows(1); }
+  if (String(sh.getRange(1, COLS_STATUS.length).getValue()).trim() !== COLS_STATUS[COLS_STATUS.length - 1]) sh.getRange(1, 1, 1, COLS_STATUS.length).setValues([COLS_STATUS]).setFontWeight('bold');
   return sh;
 }
 function _motivos() {
@@ -936,7 +937,7 @@ function _statusPorOs() {
   if (!sh || sh.getLastRow() < 2) return m;
   sh.getRange(2, 1, sh.getLastRow() - 1, COLS_STATUS.length).getValues().forEach(function (r) {
     var os = String(r[2]).trim(); if (!os) return;
-    m[os] = { s: String(r[4]).trim(), m: String(r[5]).trim(), o: String(r[6]).trim(), u: String(r[1]).trim(), dh: _txtDh(r[0]) };
+    m[os] = { s: String(r[4]).trim(), m: String(r[5]).trim(), o: String(r[6]).trim(), u: String(r[1]).trim(), dh: _txtDh(r[0]), sol: String(r[7] || '').trim() };
   });
   return m;
 }
@@ -947,11 +948,13 @@ function mudarStatus(tk, L) {
   var st = String(L.st || '').toUpperCase();
   if (['CANCELADO', 'PARALISADO', 'LIBERADO'].indexOf(st) < 0) return { ok: false, msg: 'Situação inválida.' };
   if (st !== 'LIBERADO' && !String(L.motivo || '').trim()) return { ok: false, msg: 'Escolha o motivo.' };
+  if (!String(L.sol || '').trim()) return { ok: false, msg: 'Informe quem solicitou.' };
   var os = pvOs_(L.oc), agora = _agora();
-  _abaStatus().appendRow([agora, s.n, os, L.id, st, String(L.motivo || ''), String(L.obs || '').substring(0, 300)]);
-  _log(s, 'PEDIDO ' + st, os + ' · ' + (L.cli || '') + (L.motivo ? ' · ' + L.motivo : '') + (L.obs ? ' · ' + L.obs : ''));
+  var sol = String(L.sol).trim().substring(0, 80);
+  _abaStatus().appendRow([agora, s.n, os, L.id, st, String(L.motivo || ''), String(L.obs || '').substring(0, 300), sol]);
+  _log(s, 'PEDIDO ' + st, os + ' · ' + (L.cli || '') + (L.motivo ? ' · ' + L.motivo : '') + ' · solicitado por ' + sol + (L.obs ? ' · ' + L.obs : ''));
   return { ok: true, msg: os + (st === 'LIBERADO' ? ' liberado novamente.' : ' marcado como ' + st.toLowerCase() + '.'),
-           st: st === 'LIBERADO' ? null : { s: st, m: String(L.motivo || ''), o: String(L.obs || ''), u: s.n, dh: agora.substring(0, 16) } };
+           st: st === 'LIBERADO' ? null : { s: st, m: String(L.motivo || ''), o: String(L.obs || ''), u: s.n, dh: agora.substring(0, 16), sol: sol } };
 }
 
 /* ===================== V3.7 — UPLOAD DO RELATÓRIO DE FATURAMENTO (ERP) ===================== */
