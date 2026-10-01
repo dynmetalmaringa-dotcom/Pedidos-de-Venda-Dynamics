@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V3.0
+ * Arquivo: App              Versão: V3.4
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -518,7 +518,12 @@ function emailRevisoesDia() {
     data vira texto dd/MM/aa, número continua número. */
 function _txtRev(v) {
   if (v === null || v === undefined) return '';
-  if (Object.prototype.toString.call(v) === '[object Date]') return Utilities.formatDate(v, FUSO, 'dd/MM/yy');
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    // V3.4 — número que a planilha exibiu como data (célula com formato de data): volta a ser quantidade
+    if (v.getFullYear() < 1950) return Math.round((v.getTime() - new Date(1899, 11, 30).getTime()) / 864e5 * 10000) / 10000;
+    return Utilities.formatDate(v, FUSO, 'dd/MM/yy');
+  }
+  if (typeof v === 'string' && /^-?\d+(,\d+)?$/.test(v.trim())) return Number(v.trim().replace(',', '.'));
   return typeof v === 'number' ? v : String(v);
 }
 
