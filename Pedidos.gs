@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — EXTRATOR DE PEDIDOS DE VENDA
- * Arquivo: Pedidos          Versão: V1.9
+ * Arquivo: Pedidos          Versão: V2.0
  *
  * O QUE FAZ
  *   Lê os PDFs de pedido de venda do ForWood que o Orçamento sobe na
@@ -768,10 +768,14 @@ function pvGravarRevisoes_(shR, agora, cab, revDe, difs) {
     shR.appendRow([agora, cab.oc, revDe, cab.revisao, 'COMERCIAL', 'SEM MUDANCA DETECTADA', '', '', '', '']);
     return;
   }
+  // V2.0 — de/para gravados como TEXTO: evita a planilha transformar quantidade em data
+  var txt = function (v) { return v === null || v === undefined ? '' : (typeof v === 'number' ? String(v).replace('.', ',') : String(v)); };
   var linhas = difs.map(function (d) {
-    return [agora, cab.oc, revDe, cab.revisao, d[0], d[1], d[2], d[3], d[4], d[5]];
+    return [agora, cab.oc, revDe, cab.revisao, d[0], d[1], d[2], d[3], txt(d[4]), txt(d[5])];
   });
-  shR.getRange(shR.getLastRow() + 1, 1, linhas.length, COLS_REVISOES.length).setValues(linhas);
+  var ini = shR.getLastRow() + 1;
+  shR.getRange(ini, 9, linhas.length, 2).setNumberFormat('@');
+  shR.getRange(ini, 1, linhas.length, COLS_REVISOES.length).setValues(linhas);
 }
 
 function pvErro_(ss, agora, arquivo, motivo, detalhe) {
