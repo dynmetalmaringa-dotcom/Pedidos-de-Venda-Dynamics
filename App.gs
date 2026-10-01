@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V3.5
+ * Arquivo: App              Versão: V3.7
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -232,7 +232,7 @@ function carregar(tk) {
         dt: _dataBr(r[I.data_rev_tabela])
       });
     });
-    var DYN = _mapaDyn(), REV = _revisoes(), FAT = _faturadoPorItem();
+    var DYN = _mapaDyn(), REV = _revisoes(), FAT = _faturadoPorItem(), STT = _statusPorOs();
     vp.forEach(function (r) {
       if (String(r[P.vigente]).trim() !== 'SIM') return;
       var id = String(r[P.id_pedido]).trim(), rev = pvRev_(r[P.revisao]);
@@ -242,10 +242,10 @@ function carregar(tk) {
       var nome = String(r[P.cliente] || '').trim() || String(r[P.cli_pailon]).trim();
       var p = {
         id: id, oc: String(r[P.oc]).trim(), rev: rev, erp: String(r[P.numero_erp]).trim(),
-        cli: nome, cp: pvPad_(r[P.cli_pailon], 3), rv: String(r[P.revenda] || '').trim(),
+        cli: nome, cp: String(r[P.cli_pailon] || '').trim() ? pvPad_(r[P.cli_pailon], 3) : '', rv: String(r[P.revenda] || '').trim(),
         loc: [String(r[P.cidade] || '').trim(), String(r[P.uf] || '').trim()].filter(String).join(' - '),
         dp: _dataBr(r[P.data_pedido]), ent: _dataBr(r[P.data_entrega]),
-        v: _r2(v), v40: _r2(v40), itens: itens,
+        v: _r2(v), v40: _r2(v40), itens: itens, fx: (v40 > 0 && Math.abs(v - v40) < 0.01) ? 1 : FATOR_CHEIO,
         dc: (function (x) { return Object.prototype.toString.call(x) === '[object Date]' ? Utilities.formatDate(x, FUSO, 'dd/MM/yyyy HH:mm') : String(x || '').trim(); })(r[P.data_carga]),
         rt: String(r[P.tipo] || '').trim() === 'RETRABALHO', org: String(r[P.os_origem] || '').trim()
       };
@@ -264,6 +264,7 @@ function carregar(tk) {
       p.comp = _r2(comp); p.tab = _r2(tab); p.ct = n;
       var ra = REV[p.oc + '|' + rev];
       if (ra) p.alt = ra;
+      var stt = STT[os]; if (stt && stt.s !== 'LIBERADO') p.st = stt;      // V3.7 — cancelado / paralisado
       out.P.push(p);
     });
   }
@@ -276,6 +277,7 @@ function carregar(tk) {
   if (s.t.indexOf('up') >= 0) out.logs = _ultimosLogs(s.p === 'oculto');
   if (s.t.indexOf('reg') >= 0 && !out.logs.length) out.logs = _ultimosLogs(s.p === 'oculto');
   if (s.t.indexOf('flan') >= 0) out.fat = _lancamentos();
+  out.motivos = _motivos();
   if (!s.t.some(function (k) { return /^(dia|mes|cli|rdia|rmes|rcli|aud|flan|pcar)$/.test(k); })) out.P = [];
   out.ms = Date.now() - t0;
   return out;
@@ -508,7 +510,7 @@ function emailRevisoesDia() {
       '<p style="margin:0 0 6px;font-size:13px">' + (sem ? '<b style="color:#D0121C">ALTERADO SEM TROCA DE REVISÃO</b>' : 'Revisão ' + x.de + ' → ' + x.para) +
       (r ? ' · entrega ' + _dataBr(r[P.data_entrega]) : '') + '</p>' +
       _tab(['Tipo', 'Código', 'Descrição', 'De', 'Para'], x.l.filter(function (l) { return !/^ALERTA$/.test(l[4]); }).map(function (l) {
-        return [String(l[5]).toLowerCase(), l[6], l[7], _txtRev(l[8]), '<b>' + _txtRev(l[9]) + '</b>'];
+        return [_acent(String(l[5]).toLowerCase()), l[6], l[7], _txtRev(l[8]), '<b>' + _txtRev(l[9]) + '</b>'];
       }));
   });
   _email(_destinos('REVISOES'), 'Pedidos revisados hoje (' + hoje + ') · ' + ks.length, 'Pedidos revisados hoje', corpo);
@@ -899,4 +901,112 @@ function situacaoApp() {
   CacheService.getScriptCache().put('fvd_' + tk, JSON.stringify({ u: 'EDITOR', p: 'oculto', n: 'Editor', t: TODAS_TELAS }), 60);
   var t = Date.now(), d = carregar(tk);
   Logger.log(d.P.length + ' pedidos vigentes · ' + d.tabelas.length + ' tabelas · carga ' + (Date.now() - t) + ' ms');
+}
+
+
+/* ===================== V3.7 — CANCELADO / PARALISADO ===================== */
+var ABA_STATUS = 'StatusPedido', ABA_MOTIVOS = 'Motivos';
+var COLS_STATUS = ['data_hora', 'usuario', 'os', 'id_pedido', 'status', 'motivo', 'observacao'];
+var MOTIVOS_PADRAO = [
+  ['CANCELADO', 'Cliente desistiu'], ['CANCELADO', 'Pedido duplicado'], ['CANCELADO', 'Substituído por outro pedido'],
+  ['CANCELADO', 'Obra / projeto cancelado pelo cliente'], ['CANCELADO', 'Erro de lançamento'], ['CANCELADO', 'Outro'],
+  ['PARALISADO', 'Aguardando cliente'], ['PARALISADO', 'Aguardando projeto'], ['PARALISADO', 'Aguardando medição'],
+  ['PARALISADO', 'Aguardando aprovação comercial'], ['PARALISADO', 'Pendência financeira'], ['PARALISADO', 'Obra paralisada'], ['PARALISADO', 'Outro']];
+function _abaStatus() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ABA_STATUS);
+  if (!sh) { sh = ss.insertSheet(ABA_STATUS); sh.getRange(1, 1, 1, COLS_STATUS.length).setValues([COLS_STATUS]).setFontWeight('bold'); sh.setFrozenRows(1); }
+  return sh;
+}
+function _motivos() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ABA_MOTIVOS);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_MOTIVOS);
+    sh.getRange(1, 1, 1, 2).setValues([['tipo', 'motivo']]).setFontWeight('bold');
+    sh.getRange(2, 1, MOTIVOS_PADRAO.length, 2).setValues(MOTIVOS_PADRAO); sh.setFrozenRows(1);
+  }
+  var m = { CANCELADO: [], PARALISADO: [] };
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+    var t = String(r[0]).trim().toUpperCase(), x = String(r[1]).trim();
+    if (m[t] && x && m[t].indexOf(x) < 0) m[t].push(x);
+  });
+  return m;
+}
+function _statusPorOs() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_STATUS), m = {};
+  if (!sh || sh.getLastRow() < 2) return m;
+  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_STATUS.length).getValues().forEach(function (r) {
+    var os = String(r[2]).trim(); if (!os) return;
+    m[os] = { s: String(r[4]).trim(), m: String(r[5]).trim(), o: String(r[6]).trim(), u: String(r[1]).trim(), dh: _txtDh(r[0]) };
+  });
+  return m;
+}
+/** Cancela, paralisa ou libera (reativa) um pedido. Fica registrado quem e quando. */
+function mudarStatus(tk, L) {
+  var s = _sessao(tk);
+  if (!s.t.some(function (k) { return /^(dia|rdia|pcar)$/.test(k); })) return { ok: false, msg: 'Seu usuário não pode alterar a situação do pedido.' };
+  var st = String(L.st || '').toUpperCase();
+  if (['CANCELADO', 'PARALISADO', 'LIBERADO'].indexOf(st) < 0) return { ok: false, msg: 'Situação inválida.' };
+  if (st !== 'LIBERADO' && !String(L.motivo || '').trim()) return { ok: false, msg: 'Escolha o motivo.' };
+  var os = pvOs_(L.oc), agora = _agora();
+  _abaStatus().appendRow([agora, s.n, os, L.id, st, String(L.motivo || ''), String(L.obs || '').substring(0, 300)]);
+  _log(s, 'PEDIDO ' + st, os + ' · ' + (L.cli || '') + (L.motivo ? ' · ' + L.motivo : '') + (L.obs ? ' · ' + L.obs : ''));
+  return { ok: true, msg: os + (st === 'LIBERADO' ? ' liberado novamente.' : ' marcado como ' + st.toLowerCase() + '.'),
+           st: st === 'LIBERADO' ? null : { s: st, m: String(L.motivo || ''), o: String(L.obs || ''), u: s.n, dh: agora.substring(0, 16) } };
+}
+
+/* ===================== V3.7 — UPLOAD DO RELATÓRIO DE FATURAMENTO (ERP) ===================== */
+/** Lê a planilha do ERP (Codigo, Produto Codigo, Qtde Produto, Valor Produto Unitario,
+ *  Data Atendimento...) e devolve as linhas. O app confere com os pedidos antes de gravar. */
+function lerFaturamento(tk, b64, nome) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('flan') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Faturamento.' };
+  var blob = Utilities.newBlob(Utilities.base64Decode(b64), MimeType.MICROSOFT_EXCEL, nome || 'faturamento.xlsx');
+  var f = Drive.Files.insert({ title: '__fat__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob, { convert: true });
+  try {
+    var v = SpreadsheetApp.openById(f.id).getSheets()[0].getDataRange().getValues();
+    var cab = v[0].map(function (x) { return String(x).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim(); });
+    function col(re) { for (var i = 0; i < cab.length; i++) if (re.test(cab[i])) return i; return -1; }
+    var C = { erp: col(/^codigo$/), obs: col(/observacao/), c: col(/produto codigo/), d: col(/produto descricao/), q: col(/qtde/),
+              u: col(/unitario/), t: col(/produto total/), dat: col(/atendimento/), sit: col(/situacao/), nf: col(/(^| )(nf|nota)( |$)|nota fiscal/) };
+    if (C.erp < 0 || C.c < 0 || C.q < 0 || C.u < 0) return { ok: false, msg: 'Planilha fora do padrão: preciso das colunas Codigo, Produto Codigo, Qtde Produto e Valor Produto Unitario.' };
+    var L = [];
+    v.slice(1).forEach(function (r) {
+      var erp = String(r[C.erp]).trim(); if (!erp) return;
+      var dt = C.dat >= 0 ? r[C.dat] : '';
+      if (Object.prototype.toString.call(dt) === '[object Date]') dt = Utilities.formatDate(dt, FUSO, 'dd/MM/yyyy');
+      L.push({ erp: erp, obs: C.obs >= 0 ? String(r[C.obs]).trim() : '', c: String(r[C.c]).trim(), d: C.d >= 0 ? String(r[C.d]).trim() : '',
+               q: Number(String(r[C.q]).replace(',', '.')) || 0, u: Number(String(r[C.u]).replace(',', '.')) || 0,
+               dat: String(dt || '').trim(), sit: C.sit >= 0 ? String(r[C.sit]).trim() : '', nf: C.nf >= 0 ? String(r[C.nf]).trim() : '' });
+    });
+    _log(s, 'FATURAMENTO LIDO', (nome || '') + ' · ' + L.length + ' linha(s)');
+    return { ok: true, linhas: L, temNf: C.nf >= 0 };
+  } finally { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) {} }
+}
+/** Grava vários pedidos de uma vez (vindo do relatório do ERP). */
+function faturarLote(tk, lotes) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('flan') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Faturamento.' };
+  var lock = LockService.getScriptLock(); lock.tryLock(30000);
+  try {
+    var sh = _abaFat(), agora = _agora(), linhas = [], tot = 0;
+    (lotes || []).forEach(function (L) {
+      var os = pvOs_(L.oc), nf = String(L.nf || 'S/NF').trim();
+      (L.itens || []).forEach(function (x) {
+        var qf = Number(x.qf), uf = Number(x.uf), up = Number(x.up) || 0, qp = Number(x.qp) || 0;
+        if (!(qf > 0)) return;
+        var a = Math.abs(uf - up) > 0.005 || Math.abs(qf - qp) > 0.0001; tot += qf * uf;
+        linhas.push([agora, s.n + ' (relatório ERP)', nf, L.dnf, L.id, L.oc, os, pvRev_(String(L.oc).slice(-2)), L.cli, x.c, x.d, qp, qf, up, uf, Math.round(qf * uf * 100) / 100, a ? 'SIM' : 'NAO']);
+      });
+    });
+    if (!linhas.length) return { ok: false, msg: 'Nenhum item para gravar.' };
+    sh.getRange(sh.getLastRow() + 1, 1, linhas.length, COLS_FAT.length).setValues(linhas);
+    _log(s, 'FATURAMENTO LOTE', lotes.length + ' pedido(s) · ' + linhas.length + ' item(ns) · R$ ' + (Math.round(tot * 100) / 100));
+    return { ok: true, msg: lotes.length + ' pedido(s) e ' + linhas.length + ' item(ns) registrados.' };
+  } finally { lock.releaseLock(); }
+}
+
+/* V3.7 — acentua os textos gravados sem acento na base (e-mails) */
+function _acent(t) {
+  var A = [[/incluido/g,'incluído'],[/excluido/g,'excluído'],[/revisao/g,'revisão'],[/mudanca/g,'mudança'],[/programacao/g,'programação'],[/condicao/g,'condição'],[/descricao/g,'descrição'],[/preco/g,'preço'],[/observacao/g,'observação'],[/\bja\b/g,'já'],[/\bnao\b/g,'não']];
+  t = String(t || ''); A.forEach(function (a) { t = t.replace(a[0], a[1]); }); return t;
 }
