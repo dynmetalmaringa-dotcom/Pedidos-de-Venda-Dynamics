@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V3.4
+   FLUXO VENDA DYNAMICS · Script V3.5
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -12,13 +12,14 @@ function nomeModo(){ return MODO === 'r' ? 'retrabalhos' : 'pedidos de venda'; }
 var SEL = {};                                              // cartões selecionados
 var AUD = { cod: '', mes: '', q: '' };                     // auditoria
 var LOGF = 'tudo';
-var MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+var MESES = ['janeiro','fevereiro','março','abril','maio','junho','julaho','agosto','setembro','outubro','novembro','dezembro'];
 var SEMANA = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
 var GRUPOS = [['Venda', [['dia','Dia'],['mes','Mês'],['cli','Clientes']]],
   ['Retrabalho', [['rdia','Dia'],['rmes','Mês'],['rcli','Clientes']]],
   ['Orçamento', [['aud','Auditoria']]],
-  ['Arquivos', [['up','Upload'],['reg','Registros']]],
-  ['Faturamento', [['flan','Lançamento'],['fdash','Dashboard']]]];
+  ['PCP', [['pcar','Carteira de entrega']]],
+  ['Faturamento', [['flan','Lançamento'],['fdash','Dashboard']]],
+  ['Arquivos', [['up','Upload'],['reg','Registros']]]];
 
 /* ============================ utilidades ============================ */
 function rs(n){ var a = Math.abs(Number(n) || 0); return a > 0 && a < 100 ? a.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : Math.round(a).toLocaleString('pt-BR'); }
@@ -209,17 +210,18 @@ function iniciar(d){
 function telasDoPerfil(){ var t = EU.t || [], o = []; GRUPOS.forEach(function(g){ g[1].forEach(function(x){ if (t.indexOf(x[0]) >= 0) o.push(x); }); }); return o; }
 var ULT = {};
 function montarNav(){
-  var t = EU.t || [], ga = null, h1 = '', h2 = '';
+  var t = EU.t || [], ga = null, h1 = '', h2 = '', hArq = '';
   GRUPOS.forEach(function(g){
     var l = g[1].filter(function(x){ return t.indexOf(x[0]) >= 0; });
     if (!l.length) return;
     var on = l.some(function(x){ return x[0] === TELA; });
     if (on){ ga = l; ULT[g[0]] = TELA; }
     var alvo = ULT[g[0]] && t.indexOf(ULT[g[0]]) >= 0 ? ULT[g[0]] : l[0][0];
-    h1 += '<button class="' + (on ? 'on' : '') + '" onclick="ir(\'' + alvo + '\')">' + g[0] + '</button>';
+    var bt = '<button class="' + (on ? 'on' : '') + '" onclick="ir(\'' + alvo + '\')">' + g[0] + '</button>';
+    if (g[0] === 'Arquivos') hArq = bt; else h1 += bt;
   });
   if (ga && ga.length > 1) h2 = '<div class="pil sub">' + ga.map(function(x){ return '<button class="' + (x[0] === TELA ? 'on' : '') + '" onclick="ir(\'' + x[0] + '\')">' + x[1] + '</button>'; }).join('') + '</div>';
-  document.getElementById('nav').innerHTML = '<div class="pil">' + h1 + '</div>' + h2;
+  document.getElementById('nav').innerHTML = '<div class="pil">' + h1 + '</div>' + h2 + (hArq ? '<div class="pil arq">' + hArq + '</div>' : '');
 }
 function ir(id){
   var tp = telasDoPerfil();
@@ -234,14 +236,14 @@ function ir(id){
   setTimeout(botoesBusca, 0);
   try {
     w.innerHTML = ({ dia: telaDia, mes: telaMes, cli: telaCli, rdia: telaDia, rmes: telaMes, rcli: telaCli,
-                     aud: telaAud, up: telaUp, reg: telaReg, flan: telaFLan, fdash: telaFDash })[id]();
+                     aud: telaAud, pcar: telaPcp, up: telaUp, reg: telaReg, flan: telaFLan, fdash: telaFDash })[id]();
   } catch (e){
     w.innerHTML = '<div class="vazio"><b>Erro ao montar a tela</b><p>' + esc(e.message || e) + '</p></div>';
   }
 }
 function botoesBusca(){
   [].forEach.call(document.querySelectorAll('#wrap input[type=search]'), function(inp){
-    if (inp.id === 'bDia' || (inp.nextElementSibling && inp.nextElementSibling.classList.contains('bbtn'))) return;
+    if (inp.closest('.bsc') || (inp.nextElementSibling && inp.nextElementSibling.classList.contains('bbtn'))) return;
     var b = document.createElement('button'); b.className = 'btn dk bbtn'; b.textContent = 'Buscar';
     b.onclick = function(){ inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); if (inp.onsearch) inp.onsearch(); };
     inp.parentNode.insertBefore(b, inp.nextSibling);
@@ -427,6 +429,98 @@ function imprimirDia(){
   if (!l.length){ toast('Nada para imprimir.'); return; }
   var t = F.rev ? 'Pedidos revisados nos últimos 7 dias' : (F.dq ? 'Busca: ' + F.dq + ' · ' : 'Pedidos de ') + diaTitulo();
   imprimir(t, emBlocos(l, false, cDia()), 'IMPRESSÃO DIA', t + ' · ' + l.length + ' pedidos');
+}
+
+/* ============================ PCP · CARTEIRA DE ENTREGA ============================ */
+var FP = { de: '', ate: '', m: '', cli: '', sit: 'abertos', q: '', agr: 'm', anos: {} };
+function pcpBase(){
+  var hoje = chave(hojeBr()), sa = Object.keys(FP.anos);
+  return B.PVd.concat(B.PR).filter(function(p){
+    if (p.fs === 'COMPLETO' || p.canc) return false;
+    var k = chave(p.ent);
+    if (FP.sit === 'venc' && !(k && k < hoje)) return false;
+    if (FP.sit === 'prazo' && !(k >= hoje)) return false;
+    if (FP.sit === 'parc' && p.fs !== 'PARCIAL') return false;
+    if (FP.sit === 'sem' && k) return false;
+    if (FP.sit === 'ret' && !p.rt) return false;
+    if (FP.sit === 'abertos' && p.rt) return false;
+    if (FP.m && mesDe(p.ent) !== FP.m) return false;
+    if (!FP.m && sa.length && sa.indexOf(String(mesDe(p.ent)).substring(0, 4)) < 0) return false;
+    if (FP.de && (!k || k < chave(FP.de))) return false;
+    if (FP.ate && (!k || k > chave(FP.ate))) return false;
+    if (FP.cli && p.cli !== FP.cli) return false;
+    return true;
+  });
+}
+function telaPcp(){
+  var L = FP.q ? buscar(pcpBase(), FP.q) : pcpBase(), hoje = chave(hojeBr()), h30 = dObj(hojeBr()); h30.setDate(h30.getDate() + 30); var k30 = chave(('0' + h30.getDate()).slice(-2) + '/' + ('0' + (h30.getMonth() + 1)).slice(-2) + '/' + String(h30.getFullYear()).slice(-2));
+  window.PCP_L = L;
+  var tot = 0, vv = 0, nv = 0, v30 = 0, n30 = 0, sd = 0, vs = 0, pz = 0, npz = 0, clis = {};
+  L.forEach(function(p){ var k = chave(p.ent); tot += p.sal; clis[p.cli] = 1;
+    if (!k){ sd++; vs += p.sal; } else if (k < hoje){ nv++; vv += p.sal; } else if (k <= k30){ n30++; v30 += p.sal; }
+    var d = dObj(p.dp), e = dObj(p.ent); if (d && e){ pz += (e - d) / 864e5; npz++; } });
+  var meses = {}; B.PVd.concat(B.PR).forEach(function(p){ var m = mesDe(p.ent); if (m) meses[m] = 1; });
+  var anos = {}; Object.keys(meses).forEach(function(m){ anos[m.substring(0, 4)] = 1; });
+  var sa = Object.keys(FP.anos);
+  var todosCli = {}; B.PVd.concat(B.PR).forEach(function(p){ todosCli[p.cli] = 1; });
+  var h = '<div class="fl">' +
+    '<span class="lb">Entrega de</span><input type="date" value="' + isoDe(FP.de) + '" onchange="FP.de=this.value?deIso(this.value):\'\';FP.m=\'\';ir(\'pcar\')">' +
+    '<span class="lb">até</span><input type="date" value="' + isoDe(FP.ate) + '" onchange="FP.ate=this.value?deIso(this.value):\'\';FP.m=\'\';ir(\'pcar\')">' +
+    '<span class="lb">Mês</span><select onchange="FP.m=this.value;FP.de=\'\';FP.ate=\'\';FP.agr=this.value?\'s\':\'m\';ir(\'pcar\')"><option value="">Todos os meses</option>' +
+      Object.keys(meses).sort().map(function(m){ return '<option value="' + m + '"' + (FP.m === m ? ' selected' : '') + '>' + mesNome(m) + '</option>'; }).join('') + '</select>' +
+    '<select onchange="FP.cli=this.value;ir(\'pcar\')"><option value="">Todos os clientes</option>' + Object.keys(todosCli).sort().map(function(c){ return '<option' + (FP.cli === c ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>' +
+    '<select onchange="FP.sit=this.value;ir(\'pcar\')">' + [['abertos', 'Pedidos de venda em aberto'], ['venc', 'Só vencidos'], ['prazo', 'Só no prazo'], ['parc', 'Faturados parciais'], ['sem', 'Sem data de entrega'], ['ret', 'Retrabalhos'], ['tudo', 'Venda + retrabalho']].map(function(o){ return '<option value="' + o[0] + '"' + (FP.sit === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+    '<span class="bsc"><input type="search" id="bPcp" placeholder="Buscar OS ou cliente" value="' + esc(FP.q) + '" onkeydown="if(event.key===\'Enter\'){FP.q=this.value;ir(\'pcar\')}"><button class="btn dk" onclick="FP.q=document.getElementById(\'bPcp\').value;ir(\'pcar\')">Buscar</button>' + (FP.q ? '<button class="btn" onclick="FP.q=\'\';ir(\'pcar\')">✕</button>' : '') + '</span>' +
+    '<button class="btn" onclick="FP={de:\'\',ate:\'\',m:\'\',cli:\'\',sit:\'abertos\',q:\'\',agr:\'m\',anos:{}};ir(\'pcar\')">Limpar</button>' +
+    '<button class="btn red" onclick="imprimirPcp()">PDF</button><button class="btn" onclick="excelPedidos(PCP_L,\'carteira_entrega\')">Excel</button></div>';
+  if (!FP.m) h += '<div class="fl"><span class="lb">Anos de entrega</span><span class="seg"><button class="' + (sa.length ? '' : 'on') + '" onclick="FP.anos={};ir(\'pcar\')">Todos</button>' +
+    Object.keys(anos).sort().map(function(a){ return '<button class="' + (FP.anos[a] ? 'on' : '') + '" onclick="if(FP.anos[\'' + a + '\'])delete FP.anos[\'' + a + '\'];else FP.anos[\'' + a + '\']=1;ir(\'pcar\')">' + a + '</button>'; }).join('') + '</span></div>';
+  h += '<div class="kpis k6">' + kp('Carteira em aberto', 'R$ ' + rs(tot), '', L.length + ' pedidos · ' + Object.keys(clis).length + ' clientes') +
+    kp('Vencida', 'R$ ' + rs(vv), vv ? 'ab' : '', nv + ' pedidos com entrega passada') + kp('Próximos 30 dias', 'R$ ' + rs(v30), '', n30 + ' pedidos') +
+    kp('Sem data de entrega', 'R$ ' + rs(vs), '', sd + ' pedidos') + kp('Prazo médio', (npz ? Math.round(pz / npz) : 0) + ' dias', '', 'do pedido à entrega') +
+    kp('Ticket médio', 'R$ ' + rs(L.length ? tot / L.length : 0), '', 'saldo por pedido') + '</div>';
+  /* gráfico */
+  var g = {}, ch = [];
+  L.forEach(function(p){ var d = dObj(p.ent); if (!d) return; var k;
+    if (FP.agr === 's'){ var s2 = new Date(d); s2.setDate(d.getDate() - ((d.getDay() + 6) % 7)); k = s2.getFullYear() * 10000 + (s2.getMonth() + 1) * 100 + s2.getDate(); }
+    else k = mesDe(p.ent);
+    g[k] = g[k] || { v: 0, n: 0, venc: false }; g[k].v += p.sal; g[k].n++; if (chave(p.ent) < hoje) g[k].venc = true; });
+  ch = Object.keys(g).sort().map(function(k){ var r;
+    if (FP.agr === 's'){ var ks = String(k); r = ks.substring(6, 8) + '/' + ks.substring(4, 6); }
+    else { var pp = k.split('-'); r = MESES[+pp[1] - 1].substring(0, 3) + '/' + pp[0].substring(2); }
+    return { k: k, r: r, v: g[k].v, n: g[k].n, venc: g[k].venc }; });
+  var mx = Math.max.apply(null, ch.map(function(c){ return c.v; }).concat([1]));
+  h += '<div class="cx"><h3>Carteira por ' + (FP.agr === 's' ? 'semana' : 'mês') + ' de entrega<span class="sp"></span><span class="hn">vermelho = tem pedido vencido</span> <span class="seg"><button class="' + (FP.agr === 'm' ? 'on' : '') + '" onclick="FP.agr=\'m\';ir(\'pcar\')">Por mês</button><button class="' + (FP.agr === 's' ? 'on' : '') + '" onclick="FP.agr=\'s\';ir(\'pcar\')">Por semana</button></span></h3>' +
+    '<div class="bars' + (ch.length > 24 ? ' dens' : '') + '">' + (ch.map(function(c){ return '<div class="b' + (c.venc ? ' vc' : '') + '" title="' + c.r + ' · ' + c.n + ' pedidos · R$ ' + rs(c.v) + '"' + (FP.agr === 'm' ? ' onclick="FP.m=\'' + c.k + '\';FP.agr=\'s\';ir(\'pcar\')"' : '') + '><em>' + curto(c.v) + '</em><i style="height:' + Math.max(2, c.v / mx * 100) + '%"></i><span>' + c.r + '</span></div>'; }).join('') || '<p>Sem pedidos.</p>') + '</div></div>';
+  /* ranking + idade */
+  var cl = {}; L.forEach(function(p){ var c = cl[p.cli] = cl[p.cli] || { v: 0, n: 0, vc: 0, cd: p.cd }; c.v += p.sal; c.n++; if (chave(p.ent) && chave(p.ent) < hoje) c.vc++; });
+  var rk = Object.keys(cl).sort(function(a, b){ return cl[b].v - cl[a].v; }), m2 = rk.length ? cl[rk[0]].v : 1;
+  var fx = [['até 30 dias', 0, 30], ['31 a 60', 31, 60], ['61 a 90', 61, 90], ['91 a 180', 91, 180], ['mais de 180', 181, 1e9]].map(function(f){ var v = 0, n = 0; L.forEach(function(p){ var d = dObj(p.dp); if (!d) return; var dd = (new Date() - d) / 864e5; if (dd >= f[1] && dd <= f[2] + 0.99){ v += p.sal; n++; } }); return [f[0], v, n]; });
+  var mxi = Math.max.apply(null, fx.map(function(f){ return f[1]; }).concat([1]));
+  h += '<div class="grid2">' +
+    '<div class="cx"><h3>Ranking de clientes na carteira<span class="sp"></span><span class="hn">' + rk.length + ' clientes</span></h3><div class="lst alto">' + rk.map(function(c, i){ var o = cl[c];
+      return '<div class="lin lk" onclick="FP.cli=\'' + esc(c).replace(/\'/g, '') + '\';ir(\'pcar\')"><span class="n"><b>' + (i + 1) + '.</b> ' + esc(c) + ' · ' + o.n + ' ped.' + (o.vc ? ' · <b class="tx-ab">' + o.vc + ' venc.</b>' : '') + '</span><span class="g"><i style="width:' + (o.v / m2 * 100) + '%"></i></span><b class="num">R$ ' + rs(o.v) + '</b></div>'; }).join('') + '</div></div>' +
+    '<div class="cx"><h3>Idade da carteira<span class="sp"></span><span class="hn">desde a data do pedido</span></h3><div class="lst">' + fx.map(function(f){ return '<div class="lin"><span class="n">' + f[0] + ' · ' + f[2] + ' ped.</span><span class="g"><i style="width:' + (f[1] / mxi * 100) + '%"></i></span><b class="num">R$ ' + rs(f[1]) + '</b></div>'; }).join('') +
+    '</div><p class="hn" style="margin:8px 0 0">Pedidos antigos em aberto são candidatos à limpeza (cancelar / baixar).</p></div></div>';
+  /* lista */
+  var ord = L.slice().sort(function(a, b){ return (chave(a.ent) || 99999999) - (chave(b.ent) || 99999999); });
+  h += '<div class="cx"><h3>Pedidos por data de entrega<span class="sp"></span><span class="hn">' + L.length + ' pedidos · saldo a faturar</span></h3><div class="tbw alto"><table class="tb"><thead><tr><th>Entrega</th><th>Prazo</th><th>OS / ID</th><th>Cliente</th><th>Loja · cidade</th><th>Pedido</th><th class="r">Itens</th><th>Situação</th><th class="r">Saldo (cheio)</th></tr></thead><tbody>' +
+    ord.map(function(p){ var k = chave(p.ent), d = dObj(p.ent), dias = d ? Math.round((d - dObj(hojeBr())) / 864e5) : null;
+      return '<tr class="lk" onclick="F=FV;F.dia=\'' + p.dp + '\';F.dq=\'' + esc(p.os || p.erp) + '\';F.dm=\'*\';F.ate=\'\';F.rev=false;ir(\'' + (p.rt ? 'rdia' : 'dia') + '\')"><td class="num">' + (p.ent || '—') + '</td><td>' + (dias === null ? '<span class="bdg nd">sem data</span>' : dias < 0 ? '<span class="bdg ab">' + (-dias) + 'd vencido</span>' : '<span class="bdg ' + (dias <= 15 ? 'am' : 'eq') + '">' + dias + ' dias</span>') + '</td>' +
+        '<td class="cd">' + esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.os || 'ERP ' + p.erp)) + '</td><td><b>' + esc(p.cli) + '</b></td><td>' + esc(p.rv) + '<br><small style="color:#8C96A4">' + esc(p.loc) + '</small></td><td class="num">' + p.dp + '</td><td class="r num">' + p.itens.length + '</td><td>' + (p.fs === 'PARCIAL' ? '<span class="bdg am">faturado parcial</span>' : '<span class="bdg nd">aberto</span>') + '</td><td class="r num"><b>' + rs2(p.sal) + '</b></td></tr>'; }).join('') +
+    '</tbody></table></div></div>';
+  return h;
+}
+function imprimirPcp(){
+  var l = (window.PCP_L || []).slice().sort(function(a, b){ return (chave(a.ent) || 99999999) - (chave(b.ent) || 99999999); });
+  if (!l.length){ toast('Nada para imprimir.'); return; }
+  var tot = 0; l.forEach(function(p){ tot += p.sal; });
+  var t = 'Carteira de entrega' + (FP.m ? ' · ' + mesNome(FP.m) : '') + (FP.de || FP.ate ? ' · ' + (FP.de || 'início') + ' a ' + (FP.ate || 'fim') : '') + (FP.cli ? ' · ' + FP.cli : '');
+  var hoje = chave(hojeBr());
+  var h = '<table class="tb lp"><thead><tr><th></th><th>Entrega</th><th>OS / ID</th><th>Cliente</th><th>Loja</th><th>Cidade</th><th>Data pedido</th><th class="r">Itens</th><th>Situação</th><th class="r">Saldo (cheio)</th></tr></thead><tbody>' +
+    l.map(function(p){ var k = chave(p.ent); return '<tr><td class="lgp">' + marca(p.cd, p.cli) + '</td><td class="num"' + (k && k < hoje ? ' style="color:#D0121C;font-weight:700"' : '') + '>' + (p.ent || '—') + '</td><td class="cd">' + esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.os || 'ERP ' + p.erp)) + '</td><td><b>' + esc(p.cli) + '</b></td><td>' + esc(p.rv) + '</td><td>' + esc(p.loc) + '</td><td class="num">' + p.dp + '</td><td class="r num">' + p.itens.length + '</td><td>' + (p.fs === 'PARCIAL' ? 'faturado parcial' : (k && k < hoje ? 'vencido' : 'aberto')) + '</td><td class="r num"><b>' + rs2(p.sal) + '</b></td></tr>'; }).join('') +
+    '<tr class="ttf"><td></td><td colspan="8"><b>Total · ' + l.length + ' pedido(s)</b></td><td class="r num"><b>' + rs2(tot) + '</b></td></tr></tbody></table>';
+  imprimir(t, h, 'IMPRESSÃO PCP', t + ' · ' + l.length + ' pedidos');
 }
 
 /* ============================ MÊS ============================ */
