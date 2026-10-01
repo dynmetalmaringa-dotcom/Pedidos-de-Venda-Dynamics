@@ -1,5 +1,5 @@
 <style>
-/* FLUXO VENDA DYNAMICS · Estilo V3.7 */
+/* FLUXO VENDA DYNAMICS · Estilo V4.0 */
 :root{
   --g0:#0F1216;--g1:#15181D;--g2:#1E232B;--g3:#2A313B;--g4:#3A424E;
   --vm:#D0121C;--vm2:#A60E16;
@@ -457,6 +457,11 @@ tr.exc td.sm{font-size:11px;font-style:italic;text-decoration:none}
 .imp label.btn{display:inline-flex;align-items:center;cursor:pointer}
 @media (max-width:1180px){.sitk{grid-template-columns:repeat(3,1fr)}}
 @media (max-width:880px){.sitk{grid-template-columns:1fr 1fr}.sitk .lq{grid-column:1/-1}.imp{flex-direction:column;align-items:stretch}}
+
+/* V3.9 — status da importação */
+.imp{flex-wrap:wrap}.impst{flex:1 1 100%;font-size:13px;display:none;align-items:center;gap:8px;border-radius:7px;padding:8px 10px}
+.impst.ld{display:flex;background:var(--azbg);color:var(--az)}.impst.ok{display:flex;background:var(--vdbg);color:var(--vd);font-weight:600}.impst.er{display:flex;background:var(--rbg);color:#8A0B12;font-weight:600}
+.impst .sp1{width:16px;height:16px;border-width:2px;margin:0}
 
 @media print{
   .top,.nav,.fl,.toast,.conf,.pc-tg,.pc-ck,.no-pr,.seg,.bd-h button{display:none!important}
