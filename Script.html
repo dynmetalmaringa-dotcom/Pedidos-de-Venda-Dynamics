@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V3.8
+   FLUXO VENDA DYNAMICS · Script V4.1
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -858,13 +858,27 @@ function recarregar(){ atualizar(false); }
 /* ============================ FATURAMENTO ============================ */
 /* V3.7 — importação do relatório do ERP */
 var FIMP = null;
-function impFat(f){
+function impFat(f, inp){
   if (!f) return;
-  var r = new FileReader(); toast('Lendo a planilha…');
+  if (inp) inp.value = '';                                   // permite escolher o mesmo arquivo de novo
+  impMsg('ld', 'Lendo a planilha <b>' + esc(f.name) + '</b>… aguarde, leva alguns segundos.');
+  var r = new FileReader();
+  r.onerror = function(){ impMsg('er', 'Não consegui abrir o arquivo no navegador. Tente de novo.'); };
   r.onload = function(){ var b64 = String(r.result).split(',')[1];
-    srv('lerFaturamento', [TK, b64, f.name], function(x){ if (!x.ok){ toast(x.msg); return; } montaImp(x, f.name); ir('flan'); }, function(e){ toast('Falha: ' + e); }); };
+    srv('lerFaturamento', [TK, b64, f.name], function(x){
+      if (!x || !x.ok){ impMsg('er', esc((x && x.msg) || 'A planilha não pôde ser lida.')); return; }
+      if (!x.linhas.length){ impMsg('er', 'A planilha não tem linhas de faturamento.'); return; }
+      montaImp(x, f.name); ir('flan'); toast(x.linhas.length + ' linha(s) lidas. Confira e registre.');
+    }, function(e){ impMsg('er', 'Falha ao ler no servidor: ' + esc(e)); }); };
   r.readAsDataURL(f);
 }
+function enviarFatEmail(b){
+  if (!confirm('Enviar agora o e-mail com todo o faturamento lançado hoje?')) return;
+  b.disabled = true; var t = b.textContent; b.textContent = 'Enviando…';
+  srv('enviarEmailFaturamento', [TK], function(r){ b.disabled = false; b.textContent = t; impMsg(r.ok ? 'ok' : 'er', esc(r.msg)); toast(r.msg); }, function(e){ b.disabled = false; b.textContent = t; impMsg('er', 'Falha: ' + esc(e)); });
+}
+function diaUtilAnt(d){ var x = dObj(d); if (!x) return '—'; do { x.setDate(x.getDate() - 1); } while (x.getDay() === 0 || x.getDay() === 6); return ('0' + x.getDate()).slice(-2) + '/' + ('0' + (x.getMonth() + 1)).slice(-2) + '/' + x.getFullYear(); }
+function impMsg(t, m){ var e = document.getElementById('impSt'); if (e){ e.className = 'impst ' + t; e.innerHTML = (t === 'ld' ? '<i class="sp1"></i>' : '') + m; } }
 function montaImp(x, nome){
   var porErp = {}; B.P.forEach(function(p){ if (p.erp) porErp[p.erp] = p; });
   var G = {}, ord = [];
@@ -880,7 +894,9 @@ function montaImp(x, nome){
     var k = l.erp; if (!G[k]){ G[k] = { erp: l.erp, p: p, obs: l.obs, dat: l.dat, nf: l.nf, l: [] }; ord.push(k); }
     G[k].l.push({ i: i, x: l, it: it, up: up, pend: pend, st: st, ck: st[0] === 'ok' || st[0] === 'dif' });
   });
-  FIMP = { nome: nome, temNf: x.temNf, G: G, ord: ord };
+  var dc = {}; x.linhas.forEach(function(l){ if (l.dat) dc[l.dat] = (dc[l.dat] || 0) + 1; });
+  var dt = Object.keys(dc).sort(function(a, b){ return dc[b] - dc[a]; })[0] || '';
+  FIMP = { nome: nome, temNf: x.temNf, G: G, ord: ord, dt: dt ? dt.replace(/\/(\d{2})$/, function(m, a){ return '/' + a; }) : hojeBr() };
 }
 function telaImp(){
   var F2 = FIMP, n = { ok: 0, dif: 0, fat: 0, sem: 0 }, tot = 0;
@@ -888,10 +904,12 @@ function telaImp(){
   var h = '<div class="sec">Conferência do relatório · ' + esc(F2.nome) + '</div>' +
     '<div class="kpis">' + kp('Pedidos', F2.ord.length, '', 'no relatório') + kp('Conferem', n.ok, 'ac', 'itens prontos para gravar') + kp('Com diferença', n.dif, n.dif ? 'ab' : '', 'qtde ou valor') +
     kp('Já faturados', n.fat, '', 'não serão gravados') + kp('Não encontrados', n.sem, n.sem ? 'ab' : '', 'pedido/item fora do app') + '</div>' +
+    '<div class="fl"><span class="lb">Data do faturamento (nota)</span><input type="date" id="impDt" value="' + isoDe(F2.dt) + '" onchange="FIMP.dt=deIso(this.value);document.getElementById(\'impEx\').textContent=diaUtilAnt(FIMP.dt)">' +
+      '<span class="lb">Expedição</span><b id="impEx">' + diaUtilAnt(F2.dt) + '</b></div>' +
     '<div class="fl">' + (F2.temNf ? '<span class="lb">NF vem da planilha</span>' : '<span class="lb">Nº da NF</span><input id="impNf" placeholder="opcional — se vazio grava S/NF" style="width:300px">') +
     '<span class="gap"></span><b>Total marcado: R$ ' + rs2(tot) + '</b><button class="btn" onclick="FIMP=null;ir(\'flan\')">Cancelar</button><button class="btn red" id="impB" onclick="gravaImp()">Registrar faturamento</button></div>';
   F2.ord.forEach(function(k){ var g = F2.G[k], p = g.p;
-    h += '<div class="cx"><h3>' + (p ? esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.oc || 'ERP ' + p.erp)) + ' · ' + esc(p.cli) : 'ERP ' + esc(g.erp)) + ' <span class="hn">· ERP ' + esc(g.erp) + ' · ' + esc(g.obs) + ' · atendido em ' + esc(g.dat) + '</span></h3>' +
+    h += '<div class="cx"><h3>' + (p ? esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.oc || 'ERP ' + p.erp)) + ' · ' + esc(p.cli) : 'ERP ' + esc(g.erp)) + ' <span class="hn">· ERP ' + esc(g.erp) + ' · ' + esc(g.obs) + ' · data no relatório ' + esc(g.dat || '—') + '</span></h3>' +
       '<div class="tbw"><table class="tb ft"><thead><tr><th></th><th>Código</th><th>Descrição</th><th class="r">Qtde</th><th class="r">Unit. relatório</th><th class="r">Unit. pedido</th><th class="r">Total</th><th>Conferência</th></tr></thead><tbody>' +
       g.l.map(function(y){ var c = { ok: 'ac', dif: 'ab', fat: 'nd', sem: 'ab' }[y.st[0]];
         return '<tr><td>' + (y.st[0] === 'ok' || y.st[0] === 'dif' ? '<input type="checkbox" ' + (y.ck ? 'checked' : '') + ' onchange="FIMP.G[\'' + k + '\'].l[' + g.l.indexOf(y) + '].ck=this.checked;ir(\'flan\')">' : '') + '</td><td class="cd">' + esc(y.x.c) + '</td><td>' + esc(y.x.d) + '</td><td class="r num">' + qt(y.x.q) + '</td><td class="r num">' + rs2(y.x.u) + '</td><td class="r num">' + (y.it ? rs2(y.up) : '—') + '</td><td class="r num"><b>' + rs2(y.x.q * y.x.u) + '</b></td><td><span class="bdg ' + c + '">' + esc(y.st[1]) + '</span></td></tr>'; }).join('') +
@@ -899,16 +917,18 @@ function telaImp(){
   return h;
 }
 function gravaImp(){
-  var nfIn = document.getElementById('impNf'), lotes = [];
+  var nfIn = document.getElementById('impNf'), lotes = [], dtI = document.getElementById('impDt').value;
+  if (!dtI){ toast('Informe a data do faturamento.'); return; }
+  var dd = dtI.split('-'), dnfSel = dd[2] + '/' + dd[1] + '/' + dd[0];
   FIMP.ord.forEach(function(k){ var g = FIMP.G[k], p = g.p; if (!p) return;
     var its = g.l.filter(function(y){ return y.ck && y.it; }).map(function(y){ return { c: y.x.c, d: y.it.d, qp: y.pend, qf: y.x.q, up: y.up, uf: y.x.u }; });
     if (!its.length) return;
-    var d = String(g.dat || '').split('/'); var dnf = d.length === 3 ? d[0] + '/' + d[1] + '/' + (d[2].length === 2 ? '20' + d[2] : d[2]) : hojeBr().replace(/\/(\d\d)$/, '/20$1');
+    var dnf = dnfSel;                                        // V4.1 — data escolhida pelo faturista
     lotes.push({ id: p.id, oc: p.oc, cli: p.cli, nf: FIMP.temNf ? (g.nf || 'S/NF') : (nfIn && nfIn.value.trim() || 'S/NF'), dnf: dnf, itens: its });
   });
   if (!lotes.length){ toast('Nada marcado para gravar.'); return; }
   var b = document.getElementById('impB'); b.disabled = true; b.textContent = 'Gravando…';
-  srv('faturarLote', [TK, lotes], function(r){ toast(r.msg); if (r.ok){ FIMP = null; atualizar(false); } else { b.disabled = false; b.textContent = 'Registrar faturamento'; } }, function(e){ b.disabled = false; b.textContent = 'Registrar faturamento'; toast('Falha: ' + e); });
+  srv('faturarLote', [TK, lotes], function(r){ toast(r.msg); if (r.ok){ FIMP = null; atualizar(false); setTimeout(function(){ impMsg('ok', 'Faturamento registrado. Quando terminar de lançar o dia, clique em <b>Enviar e-mail do faturamento de hoje</b>.'); }, 1500); } else { b.disabled = false; b.textContent = 'Registrar faturamento'; } }, function(e){ b.disabled = false; b.textContent = 'Registrar faturamento'; toast('Falha: ' + e); });
 }
 var FAT = { q: '', id: '', sel: {}, nf: '', dnf: '' };
 function telaFLan(){
@@ -919,7 +939,7 @@ function telaFLan(){
   var h = '<div class="fl"><span class="lb">Buscar pedido</span><input type="search" autofocus placeholder="OS (sem revisão), pedido ERP, cliente ou data do pedido dd/mm/aa" value="' + esc(FAT.q) + '" onkeydown="if(event.key===\'Enter\'){FAT.q=this.value;FAT.id=\'\';ir(\'flan\')}" onsearch="FAT.q=this.value;FAT.id=\'\';ir(\'flan\')"></div>';
   if (FIMP) return h + telaImp();
   h += '<div class="imp no-pr"><div><b>Importar relatório de faturamento do ERP</b><span>Planilha Excel (.xlsx) com Codigo, Produto Codigo, Qtde Produto, Valor Produto Unitario e Data Atendimento. O app confere com os pedidos antes de gravar.</span></div>' +
-    '<label class="btn dk">Escolher planilha<input type="file" accept=".xlsx,.xls" style="display:none" onchange="impFat(this.files[0])"></label></div>';
+    '<label class="btn dk">Escolher planilha<input type="file" accept=".xlsx,.xls" style="display:none" onchange="impFat(this.files[0],this)"></label><button class="btn red" onclick="enviarFatEmail(this)">Enviar e-mail do faturamento de hoje</button><div id="impSt" class="impst"></div></div>';
   if (!FAT.id){
     if (!q) return h + '<div class="vazio"><b>Lançamento de faturamento</b><p>Busque o pedido pela OS (a revisão válida é puxada sozinha), número ERP, cliente ou data do pedido.</p></div>';
     if (!l.length) return h + '<div class="vazio"><b>Nenhum pedido em aberto encontrado</b><p>Pedidos já faturados por completo não aparecem aqui.</p></div>';
