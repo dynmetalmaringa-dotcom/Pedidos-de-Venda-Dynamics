@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — EXTRATOR DE PEDIDOS DE VENDA
- * Arquivo: Pedidos          Versão: V2.0
+ * Arquivo: Pedidos          Versão: V2.2
  *
  * O QUE FAZ
  *   Lê os PDFs de pedido de venda do ForWood que o Orçamento sobe na
@@ -90,7 +90,7 @@ var COLS_PEDIDOS = ['id_pedido','oc','vigente','cli_pailon','cliente','ano','seq
   'numero_erp','data_pedido','data_entrega','cond_pagto','observacao','revenda','cidade','uf',
   'qtd_itens','total_40','total_cheio','total_tabela','desvio_valor','desvio_pct',
   'confere_valor','confere_qtde','status','oc_divergente','arquivo','data_carga',
-  'tipo','os_origem','somente_pendentes'];
+  'tipo','os_origem','somente_pendentes','cliente_erp'];
 
 var COLS_ITENS = ['id_item','id_pedido','oc','revisao','seq','codigo','descricao','unidade','qtde',
   'preco_40','preco_cheio','total_cheio','preco_tabela','rotulo_ref','desvio_pct','desvio_valor',
@@ -230,7 +230,14 @@ function pvCabecalho_(txt) {
   m = /Nr\. Pedido Rep\.\s*:\s*;?\s*(\d{10})/.exec(txt);            var rep = m ? m[1] : '';
   h.pendentes = /Somente\s+itens\s+pendentes/i.test(txt) ? 'SIM' : '';
   h.tipo = 'VENDA'; h.os_origem = '';
-  if (!rep && !ocImp) {                                              // V1.6 — retrabalho (ID)
+  // V2.1 — cliente do ERP (ex.: 2 PAILON · 7 UNITECH · 238 UNIMOV)
+  m = /Cliente:\s*;?\s*(\d+)\s*;?\s*([^;\n]+)/.exec(txt); h.cod_erp = m ? m[1] : ''; h.nome_erp = m ? m[2].trim() : '';
+  h.direto = pvDireto_(h.cod_erp);
+  if (h.direto && !rep && !ocImp) {                                  // V2.1 — pedido direto (100%): número é pedido, não ID
+    m = /Nr\. Pedido Rep\.\s*:\s*;?\s*(\d{1,8})\b/.exec(txt) || /OC\s*:\s*;?\s*(\d{1,8})\b/.exec(txt);
+    h.id_dir = m ? m[1] : (h.numero || '');
+  }
+  if (!h.direto && !rep && !ocImp) {                                              // V1.6 — retrabalho (ID)
     m = /Nr\. Pedido Rep\.\s*:\s*;?\s*(\d{3,6})\b/.exec(txt) || /OC\s*:\s*;?\s*(\d{3,6})\b/.exec(txt);
     if (m) {
       h.tipo = 'RETRABALHO'; h.id_rt = m[1];
@@ -250,7 +257,9 @@ function pvCabecalho_(txt) {
   h.oc_impresso = ocImp;
   h.oc_divergente = (ocImp && rep && ocImp.replace(/^(\d\d)\./, '0$1.') !== h.oc) ? 'SIM' : 'NAO';
 
-  if (h.tipo === 'RETRABALHO') {
+  if (h.direto && h.id_dir) {
+    h.oc = h.id_dir; h.revisao = '00'; h.ano = ''; h.sequencial = h.id_dir; h.cli_pailon = '';
+  } else if (h.tipo === 'RETRABALHO') {
     h.oc = 'RT' + h.id_rt; h.revisao = '00'; h.ano = ''; h.sequencial = h.id_rt;
     h.cli_pailon = h.os_origem ? h.os_origem.substring(0, 3) : '';
   } else if (h.oc) {
@@ -272,7 +281,17 @@ function pvCabecalho_(txt) {
   m = /Cond\. Pagto\.\s*:\s*;?\s*([^;\n]+)/.exec(txt);              h.cond_pagto = m ? m[1].trim() : '';
   m = /Total\s+das\s+Previs[oõ]es\s*:\s*;?\s*([\d.,]+)/.exec(txt);  h.total_pedido = m ? pvNum_(m[1]) : null;
   m = /^([\d.]+,\d+)\s*\n\s*Peso Bruto/m.exec(txt);                 h.qtde_total = m ? pvNum_(m[1]) : null;
+  if (h.direto && h.nome_erp) h.cliente_obs = h.cliente_obs || h.nome_erp.split(' ')[0];
   return h;
+}
+
+/* V2.2 — PEDIDO DIRETO (valor do PDF = 100%): todo cliente do ERP que NÃO é
+   Pailon (2) nem Unitech (7). Só Pailon e Unitech têm a divisão 40/60.
+   Config opcional: clientes_rateio_codigos (padrão "2,7"). */
+function pvDireto_(cod) {
+  if (!String(cod || '').trim()) return false;
+  var rat = String(pvCfg_('clientes_rateio_codigos', '2,7')).split(/[,;\s]+/).filter(String);
+  return rat.indexOf(String(cod).trim()) < 0;
 }
 
 /**
@@ -431,9 +450,10 @@ function pvLer_(arq) {
   soma  = Math.round(soma * 100) / 100;
   somaQ = Math.round(somaQ * 10000) / 10000;
 
+  if (h.direto) it.forEach(function (x) { x.preco_cheio = x.preco_40; x.total_cheio = x.total_40; });   // V2.1 — 100%
   h.qtd_itens      = it.length;
   h.total_40       = soma;
-  h.total_cheio    = Math.round(soma * FATOR_CHEIO * 100) / 100;
+  h.total_cheio    = Math.round(soma * (h.direto ? 1 : FATOR_CHEIO) * 100) / 100;
   h.confere_valor  = (h.total_pedido !== null && Math.abs(soma - h.total_pedido) < 0.02) ? 'SIM' : 'NAO';
   // V1.8 — relatório "Somente itens pendentes": o "Total das Previsões" é o saldo
   // de pagamento do pedido inteiro; o que vale é o total dos itens pendentes
@@ -625,7 +645,7 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
   }
 
   var idPedido = (h.tipo === 'RETRABALHO' ? '' : 'PV') + h.oc.replace(/[.\-]/g, '') + (r.sufixo || '');
-  var nomeCli = pvNomeCliente_(h.cli_pailon) || h.cliente_obs;
+  var nomeCli = (h.cli_pailon ? pvNomeCliente_(h.cli_pailon) : '') || h.cliente_obs;   // V2.1 — sem código: cliente da observação
 
   // itens com a comparação de preço já resolvida
   var linhasIt = [], totTab = 0, totComp = 0, comRef = 0;
@@ -656,7 +676,7 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
     h.numero, h.data_pedido, h.data_entrega, h.cond_pagto, h.observacao, h.revenda, h.cidade, h.uf,
     h.qtd_itens, h.total_40, h.total_cheio, comRef ? totTab : '', desvio, desvioPct,
     h.confere_valor, h.confere_qtde, h.status, h.oc_divergente, nome, agora,
-    h.tipo || 'VENDA', h.os_origem || '', h.pendentes || '']);
+    h.tipo || 'VENDA', h.os_origem || '', h.pendentes || '', (h.cod_erp ? h.cod_erp + ' ' : '') + (h.nome_erp || '')]);
   pvCabecalhoNovo_(shP);
 
   if (linhasIt.length) {
@@ -666,6 +686,7 @@ function pvGravar_(ss, shP, shI, r, nome, agora) {
 
 var PV_CLI = null;   // V1.9 — aba Clientes lida uma vez por execução
 function pvNomeCliente_(codPailon) {
+  if (!String(codPailon || '').trim()) return '';                  // V2.1 — vazio virava '000' e casava com outro cliente
   if (!PV_CLI) {
     var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Clientes');
     PV_CLI = (!sh || sh.getLastRow() < 2) ? [] : sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
@@ -927,4 +948,58 @@ function reconferirPendentes() {
     n++;
   }
   Logger.log(n + ' pedido(s) reconferido(s).' + (resta ? ' Faltam ' + resta + ': rode de novo.' : ' Concluído.'));
+}
+
+/* V2.2 — AUDITORIA E CORREÇÃO DA BASE (rodar até aparecer "Concluído")
+   1. Retrabalho sem OS de origem que ganhou nome de outro cliente (AUDI):
+      volta para o cliente da observação.
+   2. Relê o PDF dos retrabalhos e dos pedidos que entraram de 01/10 em diante
+      para descobrir o cliente do ERP. Cliente fora de Pailon/Unitech = pedido
+      direto: número vira pedido normal e o valor passa a ser 100%.
+   Continua de onde parou se o tempo acabar (marca a coluna cliente_erp). */
+function corrigirBaseV22() {
+  var t0 = Date.now(), ss = SpreadsheetApp.getActiveSpreadsheet(), shP = ss.getSheetByName(ABA_PEDIDOS), shI = ss.getSheetByName(ABA_ITENS);
+  pvCabecalhoNovo_(shP);
+  var n = shP.getLastRow() - 1; if (n < 1) return;
+  var cab = shP.getRange(1, 1, 1, COLS_PEDIDOS.length).getValues()[0], c = {};
+  cab.forEach(function (x, i) { c[String(x).trim()] = i; });
+  var v = shP.getRange(2, 1, n, COLS_PEDIDOS.length).getValues(), log = [], ids = {}, resta = 0;
+  var pro = DriveApp.getFolderById(pvCfg_('pasta_pedidos_processados_id', ''));
+  var desde = pvDataNum_(pvCfg_('corrigir_desde', '01/10/2026'));
+  v.forEach(function (r) {
+    var ob1 = String(r[c.observacao] || '').split(' - ')[0].trim(), cp = String(r[c.cli_pailon] || '').trim();
+    if (!cp && ob1 && String(r[c.cliente]).trim() !== ob1) { log.push('CLIENTE ' + r[c.id_pedido] + ': ' + r[c.cliente] + ' → ' + ob1); r[c.cliente] = ob1; }
+    if (String(r[c.cliente_erp] || '').trim()) return;
+    var rt = String(r[c.tipo]).trim() === 'RETRABALHO', novo = pvDataNum_(r[c.data_carga]) >= desde;
+    if (!rt && !novo) return;
+    if (Date.now() - t0 > PV_ORCAMENTO) { resta++; return; }
+    var fs = pro.getFilesByName(String(r[c.arquivo])); if (!fs.hasNext()) { r[c.cliente_erp] = '?'; return; }
+    var h = pvCabecalho_(pvTexto_(fs.next()));
+    r[c.cliente_erp] = (h.cod_erp ? h.cod_erp + ' ' : '') + (h.nome_erp || '') || '?';
+    if (!h.direto) return;
+    var idAnt = String(r[c.id_pedido]).trim(), num = String(r[c.oc]).replace(/^RT/, '');
+    if (/^PV/.test(idAnt) && Math.abs(Number(r[c.total_cheio]) - Number(r[c.total_40])) < 0.01) return;   // já é direto
+    r[c.oc] = num; r[c.id_pedido] = 'PV' + num.replace(/[.\-]/g, ''); r[c.tipo] = 'VENDA'; r[c.os_origem] = '';
+    r[c.total_cheio] = r[c.total_40]; r[c.total_tabela] = ''; r[c.desvio_valor] = ''; r[c.desvio_pct] = '';
+    ids[idAnt] = { id: r[c.id_pedido], oc: num };
+    log.push('DIRETO ' + idAnt + ' → ' + r[c.id_pedido] + ' (' + r[c.cliente_erp] + ', valor 100%)');
+  });
+  shP.getRange(2, 1, n, COLS_PEDIDOS.length).setValues(v);
+  if (Object.keys(ids).length && shI.getLastRow() > 1) {
+    var ni = shI.getLastRow() - 1, vi = shI.getRange(2, 1, ni, COLS_ITENS.length).getValues(), I = {};
+    COLS_ITENS.forEach(function (x, i) { I[x] = i; });
+    vi.forEach(function (r) {
+      var t = ids[String(r[I.id_pedido]).trim()]; if (!t) return;
+      r[I.id_pedido] = t.id; r[I.oc] = t.oc; r[I.id_item] = t.id + '-' + String(r[I.id_item]).split('-').pop();
+      r[I.preco_cheio] = r[I.preco_40]; r[I.total_cheio] = Math.round(Number(r[I.preco_40]) * Number(r[I.qtde]) * 100) / 100;
+      r[I.preco_tabela] = ''; r[I.desvio_valor] = ''; r[I.desvio_pct] = ''; r[I.rotulo_ref] = ''; r[I.status_preco] = 'SEM PREÇO EM TABELA';
+    });
+    shI.getRange(2, 1, ni, COLS_ITENS.length).setValues(vi);
+  }
+  Logger.log((log.length ? log.join('\n') : 'Nenhuma correção nesta rodada.') + (resta ? '\nFaltam ' + resta + ' pedido(s): rode de novo.' : '\nConcluído.'));
+}
+function pvDataNum_(d) {
+  if (Object.prototype.toString.call(d) === '[object Date]') return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  var m = /(\d{2})\/(\d{2})\/(\d{2,4})/.exec(String(d || '')); if (!m) return 0;
+  var a = +m[3]; if (a < 100) a += 2000; return a * 10000 + (+m[2]) * 100 + (+m[1]);
 }
