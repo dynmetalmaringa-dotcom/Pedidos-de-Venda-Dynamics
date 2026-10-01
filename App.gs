@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V4.0
+ * Arquivo: App              Versão: V4.1
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -61,7 +61,7 @@ var TELAS_OK = { DIA: ['dia'], MES: ['mes'], 'MÊS': ['mes'], CLIENTES: ['cli'],
 var TODAS_TELAS = ['dia', 'mes', 'cli', 'rdia', 'rmes', 'rcli', 'aud', 'pcar', 'up', 'reg', 'flan', 'fdash'];
 var ABA_FAT = 'Faturamento';
 var COLS_FAT = ['data_hora','usuario','nf','data_nf','id_pedido','oc','os','revisao','cliente','codigo','descricao',
-  'qtde_pedido','qtde_faturada','unit_pedido_40','unit_faturado_40','total_faturado_40','alterado'];
+  'qtde_pedido','qtde_faturada','unit_pedido_40','unit_faturado_40','total_faturado_40','alterado','data_expedicao'];
 
 function instalarV2() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -397,6 +397,7 @@ function _abaFat() {
     sh.getRange(1, 3, sh.getMaxRows(), 1).setNumberFormat('@');
     sh.getRange(1, 6, sh.getMaxRows(), 5).setNumberFormat('@');
   }
+  if (String(sh.getRange(1, COLS_FAT.length).getValue()).trim() !== 'data_expedicao') sh.getRange(1, COLS_FAT.length).setValue('data_expedicao').setFontWeight('bold');   // V4.1
   return sh;
 }
 function _faturadoPorItem() {
@@ -415,7 +416,7 @@ function _lancamentos() {
   return sh.getRange(sh.getLastRow() - n + 1, 1, n, COLS_FAT.length).getValues().map(function (r) {
     return { dh: _txtDh(r[0]), u: String(r[1]), nf: String(r[2]), dnf: _dataBr(r[3]), id: String(r[4]), oc: String(r[5]),
              cli: String(r[8]), c: String(r[9]), d: String(r[10]), qp: Number(r[11]) || 0, qf: Number(r[12]) || 0,
-             up: Number(r[13]) || 0, uf: Number(r[14]) || 0, tf: Number(r[15]) || 0, alt: String(r[16]) === 'SIM' };
+             up: Number(r[13]) || 0, uf: Number(r[14]) || 0, tf: Number(r[15]) || 0, alt: String(r[16]) === 'SIM', dex: _dataBr(r[17]) };
   }).reverse();
 }
 function _txtDh(v) { return Object.prototype.toString.call(v) === '[object Date]' ? Utilities.formatDate(v, FUSO, 'dd/MM/yyyy HH:mm') : String(v || ''); }
@@ -437,7 +438,7 @@ function faturar(tk, L) {
       var a = Math.abs(uf - up) > 0.005 || Math.abs(qf - qp) > 0.0001;
       if (a) alt++; tot += qf * uf;
       return [agora, s.n, nf, L.dnf, L.id, L.oc, os, pvRev_(String(L.oc).slice(-2)), L.cli, x.c, x.d, qp, qf, up, uf,
-              Math.round(qf * uf * 100) / 100, a ? 'SIM' : 'NAO'];
+              Math.round(qf * uf * 100) / 100, a ? 'SIM' : 'NAO', _diaUtilAnterior(L.dnf)];
     });
     sh.getRange(sh.getLastRow() + 1, 1, linhas.length, COLS_FAT.length).setValues(linhas);
     _log(s, 'FATURAMENTO', 'NF ' + nf + ' · ' + L.oc + ' ' + L.cli + ' · ' + its.length + ' item(ns) · R$ ' + (Math.round(tot * 100) / 100) + (alt ? ' · ' + alt + ' alterado(s)' : ''));
@@ -946,7 +947,7 @@ function faturarLote(tk, lotes) {
         var qf = Number(x.qf), uf = Number(x.uf), up = Number(x.up) || 0, qp = Number(x.qp) || 0;
         if (!(qf > 0)) return;
         var a = Math.abs(uf - up) > 0.005 || Math.abs(qf - qp) > 0.0001; tot += qf * uf;
-        linhas.push([agora, s.n + ' (relatório ERP)', nf, L.dnf, L.id, L.oc, os, pvRev_(String(L.oc).slice(-2)), L.cli, x.c, x.d, qp, qf, up, uf, Math.round(qf * uf * 100) / 100, a ? 'SIM' : 'NAO']);
+        linhas.push([agora, s.n + ' (relatório ERP)', nf, L.dnf, L.id, L.oc, os, pvRev_(String(L.oc).slice(-2)), L.cli, x.c, x.d, qp, qf, up, uf, Math.round(qf * uf * 100) / 100, a ? 'SIM' : 'NAO', L.dex || _diaUtilAnterior(L.dnf)]);
       });
     });
     if (!linhas.length) return { ok: false, msg: 'Nenhum item para gravar.' };
@@ -1121,7 +1122,8 @@ function enviarEmailFaturamento(tk) {
   //         expedidos no dia útil anterior. O e-mail mostra as duas datas.
   var dts = {}; L.forEach(function (x) { dts[x.dnf] = 1; });
   var dl = Object.keys(dts).sort(function (a, b) { return _dNum(a) - _dNum(b); });
-  var rotF = dl.map(function (d) { return d.substring(0, 5); }).join(', '), rotE = dl.map(function (d) { return _diaUtilAnterior(d).substring(0, 5); }).join(', ');
+  var dxs = {}; L.forEach(function (x) { dxs[x.dex || _dataBr(_diaUtilAnterior(x.dnf))] = 1; });
+  var rotF = dl.map(function (d) { return d.substring(0, 5); }).join(', '), rotE = Object.keys(dxs).sort(function (a, b) { return _dNum(a) - _dNum(b); }).map(function (d) { return d.substring(0, 5); }).join(', ');
   var ped = {}, ord = [], tot = 0, nfs = {}, alt = 0;
   L.forEach(function (x) { if (!ped[x.oc]) { ped[x.oc] = { oc: x.oc, cli: x.cli, it: [], v: 0, nf: {} }; ord.push(x.oc); } var p = ped[x.oc]; p.it.push(x); p.v += x.tf; p.nf[x.nf] = 1; tot += x.tf; nfs[x.nf] = 1; if (x.alt) alt++; });
   ord.sort(function (a, b) { return ped[b].v - ped[a].v; });
