@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V3.8
+ * Arquivo: App              Versão: V4.0
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -458,63 +458,13 @@ function ativarV3() {
       return [a.replace(/^,\s*/, '')];
     }));
   }
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (/^(emailFaturamentoDia|emailRevisoesDia)$/.test(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('emailFaturamentoDia').timeBased().everyDays(1).atHour(18).create();
-  ScriptApp.newTrigger('emailRevisoesDia').timeBased().everyDays(1).atHour(18).create();
+  ativarV4();   // V4.0 — gatilhos de e-mail ficam em ativarV4
   _abaFat();
   Logger.log('V3.0 pronta: aba Faturamento criada; e-mails diários de faturamento e de revisões às 18h.');
   Logger.log('Coluna avisos: FATURAMENTO e REVISOES foram incluídos para quem recebia PEDIDOS/TABELAS.');
 }
 
-function emailFaturamentoDia() {
-  var hoje = Utilities.formatDate(new Date(), FUSO, 'dd/MM/yyyy');
-  var L = _lancamentos().filter(function (x) { return x.dh.indexOf(hoje) === 0; });
-  if (!L.length) return;
-  var ped = {}, tot = 0, nfs = {};
-  L.forEach(function (x) {
-    var p = ped[x.oc] = ped[x.oc] || { oc: x.oc, cli: x.cli, it: [], v: 0 };
-    p.it.push(x); p.v += x.tf; tot += x.tf; nfs[x.nf] = 1;
-  });
-  var corpo = '<p style="margin:0 0 10px"><b>' + Object.keys(ped).length + '</b> pedido(s) · <b>' + Object.keys(nfs).length + '</b> nota(s) · valor Dynamics <b>' + _moeda(tot) +
-    '</b> · valor cheio <b>' + _moeda(tot * FATOR_CHEIO) + '</b></p>';
-  Object.keys(ped).forEach(function (k) {
-    var p = ped[k];
-    corpo += '<h3 style="margin:16px 0 6px;font-size:15px">' + p.oc + ' · ' + p.cli + ' · ' + _moeda(p.v) + '</h3>' +
-      _tab(['NF', 'Código', 'Descrição', 'Qtde', 'Unit. pedido', 'Unit. faturado', 'Total', 'Lançado por'], p.it.map(function (x) {
-        return [x.nf, x.c, x.d, x.qf + (x.qf !== x.qp ? ' de ' + x.qp : ''), _moeda(x.up), (x.alt ? '<b style="color:#D0121C">' : '') + _moeda(x.uf) + (x.alt ? '</b>' : ''), _moeda(x.tf), x.u];
-      }));
-  });
-  _email(_destinos('FATURAMENTO'), 'Faturamento do dia ' + hoje + ' · ' + _moeda(tot), 'Faturamento do dia ' + hoje, corpo);
-}
 
-function emailRevisoesDia() {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_REVISOES);
-  if (!sh || sh.getLastRow() < 2) return;
-  var hoje = Utilities.formatDate(new Date(), FUSO, 'dd/MM/yyyy'), g = {};
-  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_REVISOES.length).getValues().forEach(function (r) {
-    var dh = _txtDh(r[0]); if (dh.indexOf(hoje) !== 0) return;
-    var k = String(r[1]).trim(); (g[k] = g[k] || { oc: k, de: pvRev_(r[2]), para: pvRev_(r[3]), l: [] }).l.push(r);
-  });
-  var ks = Object.keys(g); if (!ks.length) return;
-  var ped = {};
-  var shP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PEDIDOS), P = _idx(COLS_PEDIDOS);
-  shP.getRange(2, 1, shP.getLastRow() - 1, COLS_PEDIDOS.length).getValues().forEach(function (r) {
-    if (String(r[P.vigente]).trim() === 'SIM') ped[String(r[P.oc]).trim()] = r;
-  });
-  var corpo = '<p style="margin:0 0 10px"><b>' + ks.length + '</b> pedido(s) revisado(s) hoje.</p>';
-  ks.forEach(function (k) {
-    var x = g[k], r = ped[k], sem = x.l.some(function (l) { return /SEM TROCA/.test(l[5]); });
-    corpo += '<h3 style="margin:16px 0 4px;font-size:15px">' + k + (r ? ' · ' + (r[P.cliente] || '') + ' · ' + (r[P.revenda] || '') + ' · ' + _moeda(r[P.total_cheio]) : '') + '</h3>' +
-      '<p style="margin:0 0 6px;font-size:13px">' + (sem ? '<b style="color:#D0121C">ALTERADO SEM TROCA DE REVISÃO</b>' : 'Revisão ' + x.de + ' → ' + x.para) +
-      (r ? ' · entrega ' + _dataBr(r[P.data_entrega]) : '') + '</p>' +
-      _tab(['Tipo', 'Código', 'Descrição', 'De', 'Para'], x.l.filter(function (l) { return !/^ALERTA$/.test(l[4]); }).map(function (l) {
-        return [_acent(String(l[5]).toLowerCase()), l[6], l[7], _txtRev(l[8]), '<b>' + _txtRev(l[9]) + '</b>'];
-      }));
-  });
-  _email(_destinos('REVISOES'), 'Pedidos revisados hoje (' + hoje + ') · ' + ks.length, 'Pedidos revisados hoje', corpo);
-}
 
 /** V2.8 — a tela não aceita Date vindo do servidor (trava o carregamento):
     data vira texto dd/MM/aa, número continua número. */
@@ -850,11 +800,7 @@ function verificarAvisos() {
             String(r[P.revenda] || ''), _dataBr(r[P.data_pedido]), _dataBr(r[P.data_entrega]),
             _moeda(r[P.total_cheio]), d === '' ? 'sem tabela' : (d > 0 ? '+' : '') + String(d).replace('.', ',') + '%'];
   });
-  var n1 = _email(_destinos('PEDIDOS'),
-    novos.length + ' novo(s) pedido(s) de venda · ' + _moeda(tot),
-    novos.length + ' novo(s) pedido(s) de venda',
-    '<p style="margin:0 0 10px">Valor cheio total: <b>' + _moeda(tot) + '</b></p>' +
-    _tab(['OS', 'Cliente', 'Revenda', 'Pedido', 'Entrega', 'Valor cheio', 'Contra tabela'], linhas));
+  var n1 = 0;   // V4.0 — pedidos novos só no fechamento do dia (emailPedidosDia, 18h)
 
   var n2 = 0;
   if (pend.length) {
@@ -964,7 +910,9 @@ function lerFaturamento(tk, b64, nome) {
   var s = _sessao(tk);
   if (s.t.indexOf('flan') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Faturamento.' };
   var blob = Utilities.newBlob(Utilities.base64Decode(b64), MimeType.MICROSOFT_EXCEL, nome || 'faturamento.xlsx');
-  var f = Drive.Files.insert({ title: '__fat__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob, { convert: true });
+  // V3.9 — funciona com o serviço Drive na versão 2 (insert) ou 3 (create)
+  var f = Drive.Files.insert ? Drive.Files.insert({ title: '__fat__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob, { convert: true })
+                             : Drive.Files.create({ name: '__fat__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob);
   try {
     var v = SpreadsheetApp.openById(f.id).getSheets()[0].getDataRange().getValues();
     var cab = v[0].map(function (x) { return String(x).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim(); });
@@ -1012,4 +960,191 @@ function faturarLote(tk, lotes) {
 function _acent(t) {
   var A = [[/incluido/g,'incluído'],[/excluido/g,'excluído'],[/revisao/g,'revisão'],[/mudanca/g,'mudança'],[/programacao/g,'programação'],[/condicao/g,'condição'],[/descricao/g,'descrição'],[/preco/g,'preço'],[/observacao/g,'observação'],[/\bja\b/g,'já'],[/\bnao\b/g,'não']];
   t = String(t || ''); A.forEach(function (a) { t = t.replace(a[0], a[1]); }); return t;
+}
+
+
+/* ===================== V4.0 — E-MAILS DE FECHAMENTO (layout para celular) =====================
+   emailPedidosDia   → 18h · pedidos novos do dia            · coluna avisos: PEDIDOS
+   emailRevisoesDia  → 18h · pedidos revisados do dia        · coluna avisos: REVISOES
+   enviarEmailFaturamento → botão na tela Faturamento (sem gatilho) · coluna avisos: FATURAMENTO
+   Rode ativarV4() uma vez. */
+function ativarV4() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (/^(emailFaturamentoDia|emailRevisoesDia|emailPedidosDia)$/.test(t.getHandlerFunction())) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('emailPedidosDia').timeBased().everyDays(1).atHour(18).nearMinute(0).inTimezone(FUSO).create();
+  ScriptApp.newTrigger('emailRevisoesDia').timeBased().everyDays(1).atHour(18).nearMinute(5).inTimezone(FUSO).create();
+  Logger.log('V4.0: e-mails de pedidos novos e revisados às 18h. Faturamento sem gatilho (botão no app).');
+  Logger.log('Destinatários de PEDIDOS: ' + (_destinos('PEDIDOS').join(', ') || 'ninguém'));
+  Logger.log('Destinatários de REVISOES: ' + (_destinos('REVISOES').join(', ') || 'ninguém'));
+  Logger.log('Destinatários de FATURAMENTO: ' + (_destinos('FATURAMENTO').join(', ') || 'ninguém'));
+}
+
+var M_F = "font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif";
+function _mChip(t, bg, fg) { return '<span style="display:inline-block;background:' + bg + ';color:' + fg + ';font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;white-space:nowrap">' + t + '</span>'; }
+function _mSec(t) { return '<tr><td style="padding:18px 20px 8px;font-size:11px;color:#566070;letter-spacing:1.2px;text-transform:uppercase;font-weight:800;border-top:1px solid #EEF1F5">' + t + '</td></tr>'; }
+function _mKpis(l) {
+  var rows = '';
+  for (var i = 0; i < l.length; i += 2) {
+    rows += '<tr>' + l.slice(i, i + 2).map(function (k, j) {
+      return '<td width="50%" style="padding:12px 14px;border-bottom:1px solid #2A313B;' + (j === 0 ? 'border-right:1px solid #2A313B;' : '') + 'vertical-align:top"><div style="font-size:10px;color:#9AA4B2;letter-spacing:1px;text-transform:uppercase;font-weight:700">' + k[0] +
+        '</div><div style="font-size:20px;font-weight:800;color:' + (k[3] || '#fff') + ';margin-top:3px;white-space:nowrap">' + k[1] + '</div><div style="font-size:11.5px;color:#9AA4B2;margin-top:1px">' + k[2] + '</div></td>';
+    }).join('') + (l.slice(i, i + 2).length === 1 ? '<td></td>' : '') + '</tr>';
+  }
+  return '<tr><td style="padding:14px 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#15181D;border-radius:10px">' + rows + '</table></td></tr>';
+}
+function _mEnviar(tipo, assunto, sub, titulo, lead, corpo) {
+  var para = _destinos(tipo);
+  if (!para.length) { Logger.log('Ninguém com ' + tipo + ' na coluna avisos.'); return 0; }
+  var html = '<div style="margin:0;background:#EEF1F5;' + M_F + '"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF1F5"><tr><td align="center" style="padding:16px 8px">' +
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;' + M_F + ';color:#15181D">' +
+    '<tr><td style="background:#15181D;padding:14px 20px;border-bottom:3px solid #D0121C"><span style="color:#E5242E;font-weight:800;letter-spacing:2px;font-size:14px">DYNAMICS</span><br><span style="color:#9AA4B2;font-size:10px;letter-spacing:1.5px">FECHAMENTO DO DIA · PEDIDOS DE VENDA</span></td></tr>' +
+    '<tr><td style="padding:20px 20px 4px"><div style="font-size:11px;color:#8C96A4;letter-spacing:1px;text-transform:uppercase;font-weight:700">' + sub + '</div><div style="font-size:24px;line-height:1.2;font-weight:800;margin-top:6px">' + titulo + '</div>' +
+    (lead ? '<div style="font-size:14px;line-height:1.5;color:#3A4350;margin-top:8px">' + lead + '</div>' : '') + '</td></tr>' + corpo +
+    '<tr><td style="padding:20px"><a href="' + LINK_APP + '" style="display:block;text-align:center;background:#D0121C;color:#fff;padding:13px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">Abrir no app</a></td></tr>' +
+    '<tr><td style="padding:14px 20px;background:#F4F6F9;font-size:11px;line-height:1.5;color:#8C96A4">Envio automático · uso interno e confidencial · Dynamics Metalurgica Ltda.<br>Valor cheio = venda ao cliente · Valor Dynamics = valor dos PDFs (40%; pedido direto = 100%).</td></tr></table></td></tr></table></div>';
+  MailApp.sendEmail({ to: para.join(','), subject: assunto, htmlBody: html, name: 'Pedidos de Venda Dynamics' });
+  _log({ u: 'SISTEMA', p: 'sistema' }, 'E-MAIL ' + tipo, assunto + ' → ' + para.length + ' destinatário(s)');
+  return para.length;
+}
+function _mDiaSemana(d) { return ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][d.getDay()]; }
+function _mHoje() { var d = new Date(); return { d: d, br: Utilities.formatDate(d, FUSO, 'dd/MM/yyyy'), sub: _mDiaSemana(d) + ' · ' + Utilities.formatDate(d, FUSO, 'dd/MM/yyyy') }; }
+function _mDataCarga(v) { return Object.prototype.toString.call(v) === '[object Date]' ? Utilities.formatDate(v, FUSO, 'dd/MM/yyyy') : String(v || '').substring(0, 10); }
+function _mDias(ent) { var m = /^(\d{2})\/(\d{2})\/(\d{2,4})$/.exec(_dataBr(ent) || ''); if (!m) return null; var a = +m[3]; if (a < 100) a += 2000; var h = new Date(); h.setHours(0, 0, 0, 0); return Math.round((new Date(a, +m[2] - 1, +m[1]) - h) / 864e5); }
+function _mOsHoje(hoje) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_REVISOES), o = {};
+  if (!sh || sh.getLastRow() < 2) return o;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) { if (_txtDh(r[0]).indexOf(hoje) === 0) o[pvOs_(r[1])] = 1; });
+  return o;
+}
+
+/** 18h — pedidos que entraram hoje e não são revisão de pedido que já existia. */
+function emailPedidosDia() {
+  var H = _mHoje(), sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PEDIDOS);
+  if (!sh || sh.getLastRow() < 2) return;
+  var P = _idx(COLS_PEDIDOS), rev = _mOsHoje(H.br);
+  var L = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_PEDIDOS.length).getValues().filter(function (r) {
+    return _mDataCarga(r[P.data_carga]) === H.br && String(r[P.vigente]).trim() === 'SIM' && !rev[pvOs_(r[P.oc])] && String(r[P.somente_pendentes] || '') !== 'SIM';
+  });
+  if (!L.length) { Logger.log('Nenhum pedido novo hoje.'); return; }
+  L.sort(function (a, b) { return (Number(b[P.total_cheio]) || 0) - (Number(a[P.total_cheio]) || 0); });
+  var tot = 0, t40 = 0, nit = 0, urg = 0, cl = {}, semTab = 0, abaixo = 0;
+  L.forEach(function (r) {
+    var v = Number(r[P.total_cheio]) || 0; tot += v; t40 += Number(r[P.total_40]) || 0; nit += Number(r[P.qtd_itens]) || 0;
+    var d = _mDias(r[P.data_entrega]); if (d !== null && d <= 15) urg++;
+    var c = String(r[P.cliente] || r[P.cli_pailon]); cl[c] = cl[c] || [0, 0]; cl[c][0]++; cl[c][1] += v;
+    if (r[P.desvio_valor] === '' ) semTab++; else if (Number(r[P.desvio_valor]) < -0.005) abaixo++;
+  });
+  var ks = Object.keys(cl).sort(function (a, b) { return cl[b][1] - cl[a][1]; }), top = ks[0];
+  var corpo = _mKpis([['Valor cheio', _moeda0(tot), 'venda ao cliente'], ['Valor Dynamics', _moeda0(t40), 'valor dos PDFs'],
+                      ['Pedidos · itens', L.length + ' · ' + nit, ks.length + ' cliente(s)'], ['Entrega ≤ 15 dias', String(urg), 'prazo curto', '#FFC35C']]);
+  corpo += _mSec('Por cliente');
+  ks.forEach(function (k) { var w = Math.max(2, Math.round(cl[k][1] / (tot || 1) * 100));
+    corpo += '<tr><td style="padding:6px 20px"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:14px;font-weight:700">' + k + ' <span style="color:#8C96A4;font-weight:400;font-size:12px">· ' + cl[k][0] + ' ped.</span></td><td align="right" style="font-size:14px;font-weight:700;white-space:nowrap">' + _moeda0(cl[k][1]) + '</td></tr>' +
+      '<tr><td colspan="2" style="padding-top:5px"><table width="100%" cellpadding="0" cellspacing="0"><tr><td width="' + w + '%" style="background:#15181D;height:6px"></td><td style="background:#E9ECF0;height:6px"></td></tr></table></td></tr></table></td></tr>'; });
+  corpo += _mSec('Pedidos do dia');
+  L.forEach(function (r) {
+    var d = _mDias(r[P.data_entrega]), ent = _dataBr(r[P.data_entrega]), dv = r[P.desvio_valor], rt = String(r[P.tipo]) === 'RETRABALHO';
+    var tb = dv === '' ? _mChip('sem tabela', '#EEF1F5', '#566070') : Number(dv) < -0.005 ? _mChip('abaixo da tabela', '#FDE8E9', '#D0121C') : Number(dv) > 0.005 ? _mChip('acima da tabela', '#E3F5EC', '#0E7A4E') : _mChip('igual à tabela', '#E6EEFB', '#1F5FBF');
+    var pz = d === null ? '<span style="font-size:12.5px;color:#566070">sem data de entrega</span>' : d <= 15 ? _mChip('entrega ' + ent + ' · ' + (d < 0 ? Math.abs(d) + ' dias vencida' : d + ' dias'), '#FFF3DC', '#B86E00') : '<span style="font-size:12.5px;color:#566070">entrega ' + ent + ' · ' + d + ' dias</span>';
+    var n = Number(r[P.qtd_itens]) || 0;
+    corpo += '<tr><td style="padding:0 20px"><table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #EEF1F5"><tr><td style="padding:12px 0 2px;font-size:12px;color:#8C96A4;font-family:Consolas,Menlo,monospace">' + (rt ? 'RETRABALHO ' + String(r[P.oc]).replace(/^RT/, 'ID ') : r[P.oc]) + '</td><td align="right" style="padding:12px 0 2px">' + tb + '</td></tr>' +
+      '<tr><td style="font-size:15px;font-weight:800">' + (r[P.cliente] || r[P.cli_pailon]) + '</td><td align="right" style="font-size:16px;font-weight:800;white-space:nowrap">' + _moeda(r[P.total_cheio]) + '</td></tr>' +
+      '<tr><td colspan="2" style="font-size:12.5px;color:#566070;padding:2px 0 4px">' + [r[P.revenda], r[P.cidade], r[P.uf]].filter(String).join(' · ') + ' · ' + n + (n === 1 ? ' item' : ' itens') + '</td></tr>' +
+      '<tr><td colspan="2" style="padding:0 0 12px">' + pz + '</td></tr></table></td></tr>';
+  });
+  if (semTab || abaixo) corpo += _mSec('Atenção comercial') + '<tr><td style="padding:0 20px 4px"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="background:#FFF8E6;border-left:4px solid #B86E00;padding:12px 14px;font-size:13.5px;line-height:1.6">' +
+    (semTab ? '• <b>' + semTab + ' pedido(s) sem preço em tabela</b> — conferir a tabela do cliente<br>' : '') + (abaixo ? '• <b>' + abaixo + ' pedido(s) abaixo da tabela</b>' : '• Nenhum pedido abaixo da tabela') + '</td></tr></table></td></tr>';
+  var lead = '<b>' + top + '</b> respondeu por ' + Math.round(cl[top][1] / (tot || 1) * 100) + '% do valor do dia.' + (urg ? ' ' + urg + ' pedido(s) com entrega em até 15 dias.' : '');
+  _mEnviar('PEDIDOS', 'Fechamento ' + H.br.substring(0, 5) + ' · ' + L.length + ' pedido(s) novo(s) · ' + _moeda0(tot), H.sub, L.length + ' pedido(s) novo(s)<br><span style="color:#D0121C">' + _moeda0(tot) + '</span>', lead, corpo);
+}
+
+/** 18h — pedidos revisados hoje, agrupados por tipo de mudança. */
+function emailRevisoesDia() {
+  var H = _mHoje(), ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ABA_REVISOES);
+  if (!sh || sh.getLastRow() < 2) return;
+  var g = {}, ord = [];
+  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_REVISOES.length).getValues().forEach(function (r) {
+    if (_txtDh(r[0]).indexOf(H.br) !== 0) return;
+    var k = String(r[1]).trim(); if (!g[k]) { g[k] = { oc: k, de: pvRev_(r[2]), para: pvRev_(r[3]), l: [] }; ord.push(k); }
+    g[k].l.push(r);
+  });
+  if (!ord.length) { Logger.log('Nenhuma revisão hoje.'); return; }
+  var shP = ss.getSheetByName(ABA_PEDIDOS), P = _idx(COLS_PEDIDOS), vig = {}, ant = {};
+  shP.getRange(2, 1, shP.getLastRow() - 1, COLS_PEDIDOS.length).getValues().forEach(function (r) {
+    var oc = String(r[P.oc]).trim(), os = pvOs_(oc);
+    if (String(r[P.vigente]).trim() === 'SIM') vig[oc] = r; else (ant[os] = ant[os] || []).push(r);
+  });
+  var nSem = 0, nAnt = 0, nExc = 0, imp = 0, cards = [];
+  ord.forEach(function (k) {
+    var x = g[k], r = vig[k], sem = x.l.some(function (l) { return /SEM TROCA/.test(l[5]); }), sa = x.l.some(function (l) { return /SEM ANTERIOR/.test(l[5]); });
+    var a = (ant[pvOs_(k)] || []).filter(function (q) { return pvRev_(q[P.revisao]) === x.de; }).pop();
+    var dv = r && a ? (Number(r[P.total_cheio]) || 0) - (Number(a[P.total_cheio]) || 0) : 0;
+    imp += dv; if (sem) nSem++; if (sa) nAnt++;
+    var ch = x.l.filter(function (l) { return !/^ALERTA$/.test(l[4]) && !/SEM MUDANCA/.test(l[5]); });
+    var exc = ch.filter(function (l) { return /EXCLU/.test(l[5]); }).length; nExc += exc;
+    var grav = sem ? 3 : exc ? 2 : sa ? 1 : 0;
+    var cor = grav >= 2 ? '#D0121C' : sa ? '#B86E00' : '#1F5FBF';
+    var bd = (sem ? _mChip('SEM TROCA DE REVISÃO', '#D0121C', '#fff') : sa ? _mChip('REV ' + x.para + ' sem anterior na base', '#FFF3DC', '#B86E00') : _mChip('REV ' + x.de + ' → ' + x.para, '#15181D', '#fff')) +
+      (r && a && Math.abs(dv) > 0.005 ? ' ' + _mChip((dv > 0 ? '+' : '−') + _moeda0(Math.abs(dv)).replace('R$ ', 'R$ ') + (a[P.total_cheio] ? ' · ' + (dv > 0 ? '+' : '−') + Math.abs(dv / a[P.total_cheio] * 100).toFixed(1).replace('.', ',') + '%' : ''), dv < 0 ? '#FDE8E9' : '#E3F5EC', dv < 0 ? '#D0121C' : '#0E7A4E') : '');
+    var alerta = sem ? 'O pedido mudou e o número da revisão não foi trocado no ForWood. O app já atualizou; alinhar com o comercial.' : exc ? '⚠ ' + exc + ' item(ns) excluído(s) na revisão — o PCP deve confirmar se já estavam em produção.' : '';
+    var gr = {}, ordG = [['EXCLU', 'Excluídos', '#FDE8E9', '#D0121C'], ['INCLU', 'Incluídos', '#E3F5EC', '#0E7A4E'], ['QUANT', 'Quantidade alterada', '#FFF3DC', '#B86E00'], ['PRE', 'Preço alterado', '#FFF3DC', '#B86E00'], ['DESCRI', 'Descrição alterada', '#FFF3DC', '#B86E00'], ['ENTREGA', 'Data de entrega', '#E6EEFB', '#1F5FBF'], ['', 'Comercial / outros', '#EEF1F5', '#566070']];
+    ch.forEach(function (l) { var t = String(l[5]).toUpperCase(), o = ordG.filter(function (q) { return !q[0] || t.indexOf(q[0]) >= 0; })[0]; (gr[o[1]] = gr[o[1]] || { o: o, l: [] }).l.push(l); });
+    var muds = ordG.filter(function (o) { return gr[o[1]]; }).map(function (o) {
+      return '<tr><td style="padding:10px 14px 4px;border-top:1px solid #EEF1F5">' + _mChip(o[1].toUpperCase() + ' · ' + gr[o[1]].l.length, o[2], o[3]) + '</td></tr>' + gr[o[1]].l.map(function (l) {
+        var de = _txtRev(l[8]), pa = _txtRev(l[9]), ex = /EXCLU/.test(l[5]), inc = /INCLU/.test(l[5]);
+        return '<tr><td style="padding:4px 14px 8px">' + (l[6] ? '<div style="font-size:13px"><b style="font-family:Consolas,Menlo,monospace">' + l[6] + '</b> · ' + String(l[7] || '') + '</div>' : (!/ENTREGA/.test(l[5]) ? '<div style="font-size:13px;color:#3A4350">' + _acent(String(l[5]).toLowerCase()) + '</div>' : '')) +
+          '<div style="font-size:13.5px;margin-top:3px">' + (ex ? '<span style="color:#8C96A4;text-decoration:line-through">' + de + '</span> &nbsp;<b style="color:#D0121C">excluído</b>' : inc ? '<b>' + pa + '</b> &nbsp;<span style="color:#0E7A4E">novo</span>' : '<span style="color:#8C96A4">' + de + '</span> &nbsp;→&nbsp; <b>' + pa + '</b>') + '</div></td></tr>';
+      }).join('');
+    }).join('');
+    var sub = r ? [r[P.revenda], r[P.cidade], r[P.uf]].filter(String).join(' · ') + ' · entrega ' + _dataBr(r[P.data_entrega]) : '';
+    cards.push({ g: grav, h: '<tr><td style="padding:6px 20px 10px"><table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E2E6EC;border-left:5px solid ' + cor + ';border-radius:8px"><tr><td style="padding:12px 14px"><div style="font-size:12px;color:#8C96A4;font-family:Consolas,Menlo,monospace">' + k + '</div><div style="font-size:16px;font-weight:800;margin-top:2px">' + (r ? r[P.cliente] : '') + '</div><div style="font-size:12.5px;color:#566070;margin-top:2px">' + sub + '</div><div style="margin-top:8px">' + bd + '</div></td></tr>' +
+      (alerta ? '<tr><td style="padding:0 14px 12px"><div style="background:' + (sem || exc ? '#FDE8E9' : '#FFF3DC') + ';color:#8A0B12;font-size:13px;line-height:1.5;padding:10px 12px;border-radius:6px;font-weight:600">' + alerta + '</div></td></tr>' : '') +
+      (sa && !ch.length ? '<tr><td style="padding:0 14px 12px;font-size:13px;color:#566070">Mudanças não apuradas: a revisão anterior não está no app.</td></tr>' : muds) + '</table></td></tr>' });
+  });
+  cards.sort(function (a, b) { return b.g - a.g; });
+  var corpo = _mKpis([['Revisados', String(ord.length), 'no dia'], ['Impacto no valor', (imp < 0 ? '−' : imp > 0 ? '+' : '') + _moeda0(Math.abs(imp)), 'valor cheio', imp < 0 ? '#FF7A7F' : '#fff'],
+                      ['Sem troca de revisão', String(nSem), 'alinhar com o comercial', nSem ? '#FF7A7F' : '#fff'], ['Itens excluídos', String(nExc), 'conferir na produção', nExc ? '#FF7A7F' : '#fff']]) +
+    _mSec('Revisões · por gravidade') + cards.map(function (c) { return c.h; }).join('');
+  var lead = [nSem ? '<b>' + nSem + '</b> pedido(s) mudaram <b>sem troca de revisão</b>' : '', nExc ? '<b>' + nExc + '</b> item(ns) excluído(s)' : '', nAnt ? '<b>' + nAnt + '</b> revisão(ões) sem a anterior na base' : ''].filter(String).join(' · ');
+  _mEnviar('REVISOES', 'Fechamento ' + H.br.substring(0, 5) + ' · ' + ord.length + ' pedido(s) revisado(s)' + (nSem ? ' · ' + nSem + ' sem troca de revisão' : ''), H.sub, ord.length + ' pedido(s) revisado(s)', lead, corpo);
+}
+
+/** Botão na tela Faturamento: envia o faturamento lançado hoje (sem gatilho). */
+function enviarEmailFaturamento(tk) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('flan') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Faturamento.' };
+  var H = _mHoje(), L = _lancamentos().filter(function (x) { return x.dh.indexOf(H.br) === 0; });
+  if (!L.length) return { ok: false, msg: 'Nenhum faturamento lançado hoje.' };
+  if (!_destinos('FATURAMENTO').length) return { ok: false, msg: 'Ninguém marcado com FATURAMENTO na coluna avisos da aba Acessos.' };
+  // V4.0 — o faturamento lançado hoje é a data da nota (Data Atendimento) dos pedidos
+  //         expedidos no dia útil anterior. O e-mail mostra as duas datas.
+  var dts = {}; L.forEach(function (x) { dts[x.dnf] = 1; });
+  var dl = Object.keys(dts).sort(function (a, b) { return _dNum(a) - _dNum(b); });
+  var rotF = dl.map(function (d) { return d.substring(0, 5); }).join(', '), rotE = dl.map(function (d) { return _diaUtilAnterior(d).substring(0, 5); }).join(', ');
+  var ped = {}, ord = [], tot = 0, nfs = {}, alt = 0;
+  L.forEach(function (x) { if (!ped[x.oc]) { ped[x.oc] = { oc: x.oc, cli: x.cli, it: [], v: 0, nf: {} }; ord.push(x.oc); } var p = ped[x.oc]; p.it.push(x); p.v += x.tf; p.nf[x.nf] = 1; tot += x.tf; nfs[x.nf] = 1; if (x.alt) alt++; });
+  ord.sort(function (a, b) { return ped[b].v - ped[a].v; });
+  var corpo = _mKpis([['Faturado (Dynamics)', _moeda0(tot), 'valor das notas'], ['Valor cheio', _moeda0(tot * FATOR_CHEIO), 'referência 40%'],
+                      ['Pedidos · itens', ord.length + ' · ' + L.length, Object.keys(nfs).length + ' nota(s)'], ['Itens alterados', String(alt), 'qtde ou valor diferente', alt ? '#FFC35C' : '#fff']]) + _mSec('Pedidos faturados');
+  ord.forEach(function (k) { var p = ped[k];
+    corpo += '<tr><td style="padding:6px 20px 10px"><table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E2E6EC;border-left:5px solid #0E7A4E;border-radius:8px"><tr><td style="padding:12px 14px"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:12px;color:#8C96A4;font-family:Consolas,Menlo,monospace">' + p.oc + '</td><td align="right">' + _mChip('NF ' + Object.keys(p.nf).join(', '), '#E3F5EC', '#0E7A4E') + '</td></tr>' +
+      '<tr><td style="font-size:16px;font-weight:800">' + p.cli + '</td><td align="right" style="font-size:16px;font-weight:800;white-space:nowrap">' + _moeda(p.v) + '</td></tr></table></td></tr>' +
+      p.it.map(function (x) { return '<tr><td style="padding:6px 14px;border-top:1px solid #EEF1F5;font-size:13px"><b style="font-family:Consolas,Menlo,monospace">' + x.c + '</b> · ' + x.d + '<div style="margin-top:3px;color:#3A4350">' + x.qf + (x.qf !== x.qp ? ' <span style="color:#B86E00">de ' + x.qp + '</span>' : '') + ' × ' + (x.alt && Math.abs(x.uf - x.up) > 0.005 ? '<b style="color:#D0121C">' + _moeda(x.uf) + '</b> <span style="color:#8C96A4">(pedido ' + _moeda(x.up) + ')</span>' : _moeda(x.uf)) + ' = <b>' + _moeda(x.tf) + '</b></div></td></tr>'; }).join('') +
+      '</table></td></tr>'; });
+  var n = _mEnviar('FATURAMENTO', 'Faturamento ' + rotF + ' (expedição ' + rotE + ') · ' + ord.length + ' pedido(s) · ' + _moeda0(tot),
+    'Notas de ' + rotF + ' · pedidos expedidos em ' + rotE, 'Faturamento de ' + rotF + '<br><span style="color:#0E7A4E">' + _moeda0(tot) + '</span>',
+    'Pedidos <b>expedidos em ' + rotE + '</b> e faturados em <b>' + rotF + '</b>. Conferido e enviado por <b>' + s.n + '</b>.', corpo);
+  _log(s, 'FATURAMENTO E-MAIL', ord.length + ' pedido(s) · ' + _moeda(tot) + ' → ' + n + ' destinatário(s)');
+  return { ok: true, msg: 'E-mail do faturamento enviado para ' + n + ' pessoa(s).' };
+}
+function _moeda0(n) { return 'R$ ' + Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
+
+function _dNum(d) { var m = /^(\d{2})\/(\d{2})\/(\d{2,4})$/.exec(String(d || '')); if (!m) return 0; var a = +m[3]; if (a < 100) a += 2000; return a * 10000 + (+m[2]) * 100 + (+m[1]); }
+/** dia útil anterior (sexta, se a nota é de segunda) */
+function _diaUtilAnterior(d) {
+  var m = /^(\d{2})\/(\d{2})\/(\d{2,4})$/.exec(String(d || '')); if (!m) return '';
+  var a = +m[3]; if (a < 100) a += 2000; var x = new Date(a, +m[2] - 1, +m[1]);
+  do { x.setDate(x.getDate() - 1); } while (x.getDay() === 0 || x.getDay() === 6);
+  return Utilities.formatDate(x, FUSO, 'dd/MM/yyyy');
 }
