@@ -1,5 +1,5 @@
 <style>
-/* FLUXO VENDA DYNAMICS · Estilo V3.5 */
+/* FLUXO VENDA DYNAMICS · Estilo V3.7 */
 :root{
   --g0:#0F1216;--g1:#15181D;--g2:#1E232B;--g3:#2A313B;--g4:#3A424E;
   --vm:#D0121C;--vm2:#A60E16;
@@ -430,6 +430,33 @@ tr.exc td.sm{font-size:11px;font-style:italic;text-decoration:none}
 .lin.lk{cursor:pointer}.lin.lk:hover{background:var(--c0)}
 @media (max-width:1180px){.kpis.k6{grid-template-columns:repeat(3,1fr)}}
 @media (max-width:880px){.grid2{grid-template-columns:1fr}.kpis.k6{grid-template-columns:1fr 1fr}.nav .pil.arq{margin-left:0}}
+
+/* ===== V3.7 · situação do pedido, consolidado, importação ===== */
+.stb{border-radius:8px;padding:8px 10px;font-size:12px;display:flex;flex-direction:column;gap:2px;border:1px solid}
+.stb b{font-size:12px;letter-spacing:.08em}.stb em{font-style:normal;color:var(--t3);font-size:11.5px}
+.stb.ca{background:var(--rbg);border-color:#F3B6B9;color:#8A0B12}.stb.pa{background:var(--ambg);border-color:#F2D48A;color:#7A5200}
+.stbt{display:flex;gap:6px;flex-wrap:wrap}
+.btn.sm{height:30px;padding:0 10px;font-size:12px}.btn.rd{color:var(--vm);border-color:#F3B6B9}
+.pc.st-cancelado{opacity:.62}.pc.st-cancelado .pc-os b,.pc.st-cancelado .pc-v b{text-decoration:line-through}
+.pc.st-paralisado{box-shadow:inset 4px 0 0 var(--am)}
+.dlg{position:fixed;inset:0;background:rgba(15,18,22,.55);z-index:90;display:flex;align-items:center;justify-content:center;padding:16px}
+.dlg-c{background:#fff;border-radius:12px;padding:18px 20px;width:100%;max-width:440px;display:flex;flex-direction:column;gap:10px}
+.dlg-c h3{margin:0;font-size:17px}.dlg-c p{margin:0;color:var(--t2);font-size:13px}
+.dlg-c label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.06em}
+.dlg-c select,.dlg-c input{height:40px;border:1px solid var(--ln);border-radius:7px;padding:0 10px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--t1);font-weight:400}
+.dlg-f{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.sitk{display:grid;grid-template-columns:repeat(5,1fr) 1.4fr;gap:8px;margin-bottom:12px}
+.sitk>div{background:#fff;border:1px solid var(--ln);border-top:4px solid var(--g3);border-radius:8px;padding:10px 12px;cursor:pointer}
+.sitk>div:hover{background:var(--c0)}
+.sitk span{display:block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3)}
+.sitk b{display:block;font-family:var(--disp);font-size:20px;margin-top:2px}.sitk em{font-style:normal;font-size:12px;color:var(--t2)}
+.sitk .li{border-top-color:var(--az)}.sitk .fp{border-top-color:var(--am)}.sitk .fc{border-top-color:var(--vd)}.sitk .pa{border-top-color:#E0A100}.sitk .ca{border-top-color:var(--vm)}
+.sitk .lq{background:var(--g1);color:#fff;border-color:var(--g1);border-top-color:var(--vm);cursor:default}.sitk .lq span,.sitk .lq em{color:#9AA4B2}
+.imp{display:flex;align-items:center;gap:14px;background:#fff;border:1px dashed var(--ln2);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.imp div{flex:1}.imp b{display:block}.imp span{font-size:12.5px;color:var(--t2)}
+.imp label.btn{display:inline-flex;align-items:center;cursor:pointer}
+@media (max-width:1180px){.sitk{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:880px){.sitk{grid-template-columns:1fr 1fr}.sitk .lq{grid-column:1/-1}.imp{flex-direction:column;align-items:stretch}}
 
 @media print{
   .top,.nav,.fl,.toast,.conf,.pc-tg,.pc-ck,.no-pr,.seg,.bd-h button{display:none!important}
