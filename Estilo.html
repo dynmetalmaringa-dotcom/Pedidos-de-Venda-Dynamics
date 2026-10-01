@@ -1,5 +1,5 @@
-<style>
-/* FLUXO VENDA DYNAMICS · Estilo V3.3 */
+a<style>
+/* FLUXO VENDA DYNAMICS · Estilo V3.4 */
 :root{
   --g0:#0F1216;--g1:#15181D;--g2:#1E232B;--g3:#2A313B;--g4:#3A424E;
   --vm:#D0121C;--vm2:#A60E16;
@@ -399,6 +399,27 @@ button,input,select{font:inherit;color:inherit}
   .fl .btn{flex:1 1 auto;padding:8px 10px;font-size:12.5px;min-width:0}
   .fl .seg{flex:1 1 100%}.fl .seg button{flex:1}
 }
+
+/* ===== V3.4 · revisão agrupada, itens excluídos, busca ===== */
+.rvg{margin-top:8px;background:#fff;border:1px solid var(--ln);border-radius:6px;overflow:hidden}
+.rvh{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:5px 8px;display:flex;justify-content:space-between}
+.rvh i{font-style:normal;border-radius:10px;padding:0 7px;background:rgba(0,0,0,.08)}
+.rvh.ex{background:var(--rbg);color:var(--vm)}.rvh.in{background:var(--vdbg);color:var(--vd)}.rvh.al{background:var(--ambg);color:var(--am)}.rvh.dt{background:var(--azbg);color:var(--az)}.rvh.cm{background:var(--c1);color:var(--t2)}
+.rvl{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:5px 8px;border-top:1px solid var(--ln2);font-size:12px;font-weight:400;color:var(--t1)}
+.rvl code{font-family:var(--mono);font-size:11.5px;font-weight:600}
+.rvl .rvd{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--t2)}
+.rvl .rvv{white-space:nowrap;font-family:var(--mono);font-size:12px;text-align:right}
+.rvl .rvv s{color:var(--vm)}.rvl b{display:inline;font-size:12px;letter-spacing:0}
+.rvl.nc{grid-template-columns:1fr}.rvl.nc .rvv{text-align:left;white-space:normal}.rvl.nc .rvd{display:inline}
+.rvb.erro .rvl,.rvb.erro .rvg{font-weight:400}
+tr.exc td{background:#FFF4F4!important;color:#9AA4B2}
+tr.exc td.cd,tr.exc td.ds,tr.exc td.num{text-decoration:line-through;text-decoration-color:var(--vm)}
+tr.exc td .tg{text-decoration:none;display:inline-block}
+.tg.ex{background:var(--vm)!important;color:#fff!important}
+tr.exc td.sm{font-size:11px;font-style:italic;text-decoration:none}
+.bsc{display:inline-flex;gap:6px;flex:1;min-width:260px}.bsc input{flex:1;min-width:0!important}.bsc .btn{flex:0 0 auto}
+.btn.dk{background:var(--t1);color:#fff;border-color:var(--t1)}
+@media (max-width:880px){.bsc{flex:1 1 100%}.rvl{grid-template-columns:80px minmax(0,1fr) auto}}
 
 @media print{
   .top,.nav,.fl,.toast,.conf,.pc-tg,.pc-ck,.no-pr,.seg,.bd-h button{display:none!important}
