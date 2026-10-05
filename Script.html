@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V4.4
+   FLUXO VENDA DYNAMICS · Script V4.5
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -117,8 +117,16 @@ function salvaSt(id, st){
     if (r.ok){ var os = String(p.oc).replace(/-\d{1,2}$/, ''); B.P.forEach(function(x){ if (String(x.oc).replace(/-\d{1,2}$/, '') === os){ if (r.st) x.st = r.st; else delete x.st; } }); ir(TELA); }
   }, function(e){ b.disabled = false; b.textContent = 'Confirmar'; toast('Falha: ' + e); });
 }
-function guardar(k, v){ try { if (v) sessionStorage.setItem(k, v); else sessionStorage.removeItem(k); } catch(e){} }
-function lerG(k){ try { return sessionStorage.getItem(k) || ''; } catch(e){ return ''; } }
+/* V4.5 — "Lembrar neste aparelho": sessão e acesso ficam no localStorage; sem marcar, só na aba (sessionStorage) */
+function lembra(){ try { return localStorage.getItem('fvd_lb') ? true : false; } catch(e){ return false; } }
+function guardar(k, v){
+  try { sessionStorage.removeItem(k); localStorage.removeItem(k); } catch(e){}
+  if (!v) return;
+  try { (lembra() ? localStorage : sessionStorage).setItem(k, v); } catch(e){ try { sessionStorage.setItem(k, v); } catch(e2){} }
+}
+function lerG(k){ try { return sessionStorage.getItem(k) || localStorage.getItem(k) || ''; } catch(e){ return ''; } }
+function lbGravar(u, s, on){ try { if (on) localStorage.setItem('fvd_lb', JSON.stringify({ u: u, s: s })); else localStorage.removeItem('fvd_lb'); } catch(e){} }
+function lbLer(){ try { return JSON.parse(localStorage.getItem('fvd_lb') || 'null'); } catch(e){ return null; } }
 function limparSessao(){ TK = ''; guardar('fvd_tk', ''); guardar('fvd_eu', ''); }
 
 /* ============================ login e termo ============================ */
@@ -177,12 +185,16 @@ function mostrarLogin(){
   document.getElementById('app').style.display = 'none';
   document.getElementById('lgn').style.display = '';
   document.getElementById('lgB').disabled = false;
+  var lb = lbLer(), u = document.getElementById('lgU'), s = document.getElementById('lgS');
+  if (lb && lb.u){ u.value = lb.u; s.value = lb.s || ''; document.getElementById('lgL').checked = true; setTimeout(function(){ (s.value ? document.getElementById('lgB') : s).focus(); }, 50); }
+  else setTimeout(function(){ u.focus(); }, 50);
 }
 function entrar(e){
   e.preventDefault();
   var u = document.getElementById('lgU').value.trim().toUpperCase(), s = document.getElementById('lgS').value;
   var er = document.getElementById('lgE');
   if (!u || !s){ er.textContent = 'Informe usuário e senha.'; return; }
+  lbGravar(u, s, document.getElementById('lgL').checked);
   fazerLogin(u, s, null);
 }
 function fazerLogin(u, s, aceite, depois){
@@ -193,12 +205,13 @@ function fazerLogin(u, s, aceite, depois){
     if (!r.ok){
       if (r.termo){ PEND = { u: u, s: s }; verTermo(); return; }
       if (aceite){ document.getElementById('tErr').textContent = r.msg; return; }
+      if (/incorretos|bloqueado/i.test(r.msg)) lbGravar('', '', false);
       er.textContent = r.msg; return;
     }
     document.getElementById('mdl').classList.remove('on'); PEND = null;
     TK = r.token; EU = { u: r.usuario, n: r.nome, t: r.telas };
     guardar('fvd_tk', TK); guardar('fvd_eu', JSON.stringify(EU));
-    document.getElementById('lgS').value = '';
+    if (!lembra()) document.getElementById('lgS').value = '';
     abrirApp();
   }, function(m){ bt.disabled = false; bt.textContent = 'Entrar'; if (depois) depois(); er.textContent = 'Falha: ' + m; });
 }
@@ -624,7 +637,7 @@ function telaMes(){
     .sort(function(a, b){ return (a.comp - a.tab) - (b.comp - b.tab); });
   var tDif = '<div class="tbw alto"><table class="tb"><thead><tr><th>Cliente</th><th class="r">Vendido</th><th class="r">Tabela</th><th class="r">Diferença</th><th class="r">%</th><th class="r">Acima</th><th class="r">Abaixo</th><th class="r">S/ tab.</th></tr></thead><tbody>' +
     (dcl.map(function(c){ var d = c.comp - c.tab, cl = d > 0.005 ? 'tx-ac' : d < -0.005 ? 'tx-ab' : '';
-      return '<tr class="lk" onclick="FC.q=\'' + esc(c.cli).replace(/'/g, '') + '\';FC.mes=F.mes;ir(T(\'cli\'))"><td><b>' + esc(c.cli) + '</b></td><td class="r num">' + rs(c.comp) + '</td><td class="r num">' + rs(c.tab) + '</td><td class="r num ' + cl + '"><b>' + (c.tab ? sn(d) + rs(d) : '—') + '</b></td><td class="r num ' + cl + '">' + (c.tab ? sn(d) + pc(Math.abs(d / c.tab * 100)) + '%' : '—') + '</td><td class="r num tx-ac">' + (c.nAc || '') + '</td><td class="r num tx-ab">' + (c.nAb || '') + '</td><td class="r num">' + (c.st || '') + '</td></tr>'; }).join('') || '<tr><td colspan="8">Sem itens com tabela.</td></tr>') +
+      return '<tr class="lk" onclick="FC.q=\'' + esc(c.cli).replace(/'/g, '') + '\';fcDe(F.mes);ir(T(\'cli\'))"><td><b>' + esc(c.cli) + '</b></td><td class="r num">' + rs(c.comp) + '</td><td class="r num">' + rs(c.tab) + '</td><td class="r num ' + cl + '"><b>' + (c.tab ? sn(d) + rs(d) : '—') + '</b></td><td class="r num ' + cl + '">' + (c.tab ? sn(d) + pc(Math.abs(d / c.tab * 100)) + '%' : '—') + '</td><td class="r num tx-ac">' + (c.nAc || '') + '</td><td class="r num tx-ab">' + (c.nAb || '') + '</td><td class="r num">' + (c.st || '') + '</td></tr>'; }).join('') || '<tr><td colspan="8">Sem itens com tabela.</td></tr>') +
     '</tbody><tfoot><tr><td><b>Total</b>' + (Object.keys(dc).length - dcl.length ? '<br><small>' + (Object.keys(dc).length - dcl.length) + ' cliente(s) sem tabela</small>' : '') + '</td><td class="r num"><b>' + rs(s.comp) + '</b></td><td class="r num"><b>' + rs(s.tab) + '</b></td><td class="r num ' + (s.d > 0.005 ? 'tx-ac' : s.d < -0.005 ? 'tx-ab' : '') + '"><b>' + (s.tab ? sn(s.d) + rs(s.d) : '—') + '</b></td><td class="r num"><b>' + (s.tab ? sn(s.d) + pc(Math.abs(s.d / s.tab * 100)) + '%' : '—') + '</b></td><td class="r num tx-ac">acima R$ ' + rs(acima) + '</td><td class="r num tx-ab">abaixo R$ ' + rs(abaixo) + '</td><td class="r num">' + sit + '</td></tr></tfoot></table></div>';
 
   /* carteiras (saldo a faturar: pedido faturado completo sai; parcial entra pelo saldo) */
@@ -666,13 +679,33 @@ function imprimirMes(){
 
 /* ============================ CLIENTES ============================ */
 var CLI_G = [], FECH = {};
+function fcDe(m){ FC.anos = {}; FC.ms = {}; var p = String(m || '').split('-'); if (p.length === 2){ FC.anos[p[0]] = 1; FC.ms[p[1]] = 1; } FC.mes = ''; }
+function fcAnos(){ return Object.keys(FC.anos || {}).sort(); }
+function fcMs(){ return Object.keys(FC.ms || {}).sort(); }
+function fcOk(me){ var a = fcAnos(), m = fcMs(), k = String(me || ''); return (!a.length || a.indexOf(k.substring(0, 4)) >= 0) && (!m.length || m.indexOf(k.substring(5, 7)) >= 0); }
+function fcRot(){
+  var a = fcAnos(), m = fcMs();
+  if (a.length === 1 && m.length === 1) return mesNome(a[0] + '-' + m[0]);
+  var tm = m.length ? m.map(function(x){ return MESES[+x - 1].substring(0, 3).toLowerCase(); }).join(', ') : '';
+  var ta = a.length ? a.join(', ') : 'todos os anos';
+  return m.length ? tm + ' · ' + ta : (a.length ? 'ano ' + ta : 'todos os meses');
+}
+function fcAno(a){ FC.anos = FC.anos || {}; if (a === '*') FC.anos = {}; else if (FC.anos[a]) delete FC.anos[a]; else FC.anos[a] = 1; ir(T('cli')); }
+function fcMesT(m){ FC.ms = FC.ms || {}; if (m === '*') FC.ms = {}; else if (FC.ms[m]) delete FC.ms[m]; else FC.ms[m] = 1; ir(T('cli')); }
 function telaCli(){
-  var base = FC.mes ? PV().filter(function(p){ return p.me === FC.mes; }) : PV();
-  base = buscar(base, FC.q);
+  if (FC.mes || !FC.anos) fcDe(FC.mes);
+  var base = buscar(PV().filter(function(p){ return fcOk(p.me); }), FC.q);
   var g = {};
   base.forEach(function(p){ var k = p.cd + '|' + p.cli; g[k] = g[k] || { k: k, cli: p.cli, cd: p.cd, l: [] }; g[k].l.push(p); });
   CLI_G = Object.keys(g).map(function(k){ var x = g[k]; x.s = somar(x.l); return x; }).sort(function(a, b){ return b.s.v - a.s.v; });
-  var h = '<div class="fl"><span class="lb">Mês</span>' + selMes(FC.mes, 'fcMes', true) +
+  var sa = fcAnos(), sm = fcMs(), tem = {};
+  MESES_D.forEach(function(m){ if (!sa.length || sa.indexOf(m.substring(0, 4)) >= 0) tem[m.substring(5, 7)] = 1; });
+  var h = '<div class="fl"><span class="lb">Ano</span><span class="seg"><button class="' + (sa.length ? '' : 'on') + '" onclick="fcAno(\'*\')">Todos</button>' +
+    anosD().map(function(a){ return '<button class="' + (sa.indexOf(a) >= 0 ? 'on' : '') + '" onclick="fcAno(\'' + a + '\')">' + a + '</button>'; }).join('') + '</span>' +
+    '<span class="lb">Meses</span><span class="seg segm"><button class="' + (sm.length ? '' : 'on') + '" onclick="fcMesT(\'*\')">Ano todo</button>' +
+    ['01','02','03','04','05','06','07','08','09','10','11','12'].map(function(m){ return '<button class="' + (sm.indexOf(m) >= 0 ? 'on' : '') + (tem[m] ? '' : ' sd') + '" onclick="fcMesT(\'' + m + '\')">' + MESES[+m - 1].substring(0, 3) + '</button>'; }).join('') + '</span>' +
+    '<span class="fcr">Período: <b>' + esc(fcRot()) + '</b></span></div>' +
+    '<div class="fl">' +
     '<input type="search" placeholder="Buscar cliente ou OS" value="' + esc(FC.q) + '" onkeydown="if(event.key===\'Enter\'){FC.q=this.value;ir(T(\'cli\'))}" onsearch="FC.q=this.value;ir(T(\'cli\'))">' +
     '<span class="gap"></span><span class="lb">Selecionados: <b id="nSel">' + Object.keys(SEL).length + '</b></span>' +
     '<button class="btn" onclick="todosCli(true)">Recolher tudo</button><button class="btn" onclick="todosCli(false)">Expandir tudo</button>' +
@@ -680,14 +713,14 @@ function telaCli(){
     '<button class="btn red" onclick="imprimirCli(true)">PDF selecionados</button>' +
     '<button class="btn dk" onclick="imprimirCli(false)">PDF da tela</button>' +
     '<button class="btn" onclick="excelCli()">Excel</button></div>';
-  if (!CLI_G.length) return h + '<div class="vazio"><b>Nenhum pedido</b><p>Ajuste o mês ou a busca.</p></div>';
+  if (!CLI_G.length) return h + '<div class="vazio"><b>Nenhum pedido</b><p>Ajuste o ano, os meses ou a busca.</p></div>';
   h += CLI_G.map(function(c, i){
     var s = c.s, id = 'cg' + i;
     var todos = c.l.every(function(p){ return SEL[p.id]; });
     return '<div class="cg' + (fechado(c.k) ? ' fe' : '') + '" id="' + id + '"><div class="cg-h" onclick="togCli(' + i + ',event)">' +
       '<input type="checkbox" title="Selecionar todos deste cliente" ' + (todos ? 'checked' : '') + ' onclick="marcarCli(' + i + ',this.checked)">' +
       marca(c.cd, c.cli) +
-      '<div class="cg-n">' + esc(c.cli) + '<small>' + s.n + ' pedido' + (s.n > 1 ? 's' : '') + ' · ' + s.it + ' itens · ' + mesNome(FC.mes) + '</small></div>' +
+      '<div class="cg-n">' + esc(c.cli) + '<small>' + s.n + ' pedido' + (s.n > 1 ? 's' : '') + ' · ' + s.it + ' itens · ' + esc(fcRot()) + '</small></div>' +
       '<div class="cg-k"><div>Valor cheio<b>R$ ' + rs(s.v) + '</b></div><div>Dynamics 40%<b>R$ ' + rs(s.v40) + '</b></div><div>Contra tabela' + kDesvio(s) + '</div></div></div>' +
       '<div class="cg-b">' + c.l.map(function(p){ return cartao(p, true); }).join('') + '</div></div>';
   }).join('');
@@ -696,18 +729,18 @@ function telaCli(){
 function fechado(k){ return FECH[k] === undefined ? !(FC.q || CLI_G.length <= 2) : FECH[k]; }
 function togCli(i, e){ if (e.target.tagName === 'INPUT') return; var k = CLI_G[i].k; FECH[k] = !fechado(k); document.getElementById('cg' + i).classList.toggle('fe', FECH[k]); }
 function todosCli(f){ CLI_G.forEach(function(c, i){ FECH[c.k] = f; var e = document.getElementById('cg' + i); if (e) e.classList.toggle('fe', f); }); }
-function fcMes(v){ FC.mes = v; ir(T('cli')); }
+function fcMes(v){ fcDe(v); ir(T('cli')); }
 function marcarCli(i, v){ CLI_G[i].l.forEach(function(p){ marcar(p.id, v); var e = document.querySelector('#pc_' + CSS.escape(p.id) + ' .pc-ck'); if (e) e.checked = v; }); }
 function imprimirCli(soSel){
   var grupos = CLI_G.map(function(c){ return { c: c, l: soSel ? c.l.filter(function(p){ return SEL[p.id]; }) : c.l }; }).filter(function(x){ return x.l.length; });
   if (!grupos.length){ toast(soSel ? 'Marque os pedidos que quer imprimir.' : 'Nada para imprimir.'); return; }
   var n = 0, h = grupos.map(function(x){
     var s = somar(x.l); n += x.l.length;
-    return '<div class="cg"><div class="cg-h">' + marca(x.c.cd, x.c.cli) + '<div class="cg-n">' + esc(x.c.cli) + '<small>' + s.n + ' pedido(s) · ' + mesNome(FC.mes) + '</small></div>' +
+    return '<div class="cg"><div class="cg-h">' + marca(x.c.cd, x.c.cli) + '<div class="cg-n">' + esc(x.c.cli) + '<small>' + s.n + ' pedido(s) · ' + esc(fcRot()) + '</small></div>' +
       '<div class="cg-k"><div>Valor cheio<b>R$ ' + rs(s.v) + '</b></div><div>Dynamics 40%<b>R$ ' + rs(s.v40) + '</b></div><div>Contra tabela' + kDesvio(s) + '</div></div></div>' +
       '<div class="cg-b">' + x.l.map(function(p){ return cartao(p, false); }).join('') + '</div></div>';
   }).join('');
-  var t = 'Pedidos por cliente · ' + mesNome(FC.mes);
+  var t = 'Pedidos por cliente · ' + fcRot();
   imprimir(t, h, 'IMPRESSÃO CLIENTES', t + ' · ' + grupos.map(function(x){ return x.c.cli; }).join(', ') + ' · ' + n + ' pedidos');
 }
 function excelCli(){
