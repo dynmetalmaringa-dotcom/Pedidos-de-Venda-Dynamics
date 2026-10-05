@@ -22,9 +22,11 @@
   <div class="lgn-b">
     <form class="lgn-f" id="lgnF" onsubmit="entrar(event)">
       <h2>Acesso restrito</h2>
-      <p class="lgn-s">Entre com o usuário e a senha fornecidos pela Diretoria.</p>
-      <label>Usuário<input id="lgU" autocomplete="username" autocapitalize="characters" spellcheck="false" required></label>
-      <label>Senha<input id="lgS" type="password" autocomplete="current-password" required></label>
+      <p class="lgn-s">Informe seu usuário e a senha que você recebeu. Neste aparelho o app lembra de você: da próxima vez é só apertar Enter.</p>
+      <label>Usuário<input id="lgU" placeholder="Seu usuário" autocomplete="username" autocapitalize="characters" spellcheck="false" required></label>
+      <label>Senha<input id="lgS" type="password" placeholder="••••" autocomplete="current-password" required></label>
+      <label class="lgn-ck lgn-lb"><input type="checkbox" id="lgL" checked> <b>Lembrar neste aparelho</b></label>
+      <p class="lgn-av">Senha entregue pessoalmente pela diretoria. Não compartilhe — as ações feitas no app ficam registradas em seu nome.</p>
       <button class="lgn-bt" id="lgB" type="submit">Entrar</button>
       <div class="lgn-e" id="lgE"></div>
       <div class="lgn-cnpj">Dynamics Metalurgica Ltda · CNPJ 07.243.050/0001-49<br>Av. Pioneiro Antonio Ruiz Saldanha, 2358 · Jardim Industrial · Maringá-PR · 87.065-290</div>
