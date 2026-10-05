@@ -1,5 +1,5 @@
 <style>
-/* FLUXO VENDA DYNAMICS · Estilo V4.4 */
+/* FLUXO VENDA DYNAMICS · Estilo V4.5 */
 :root{
   --g0:#0F1216;--g1:#15181D;--g2:#1E232B;--g3:#2A313B;--g4:#3A424E;
   --vm:#D0121C;--vm2:#A60E16;
@@ -470,4 +470,20 @@ tr.exc td.sm{font-size:11px;font-style:italic;text-decoration:none}
   .top,.nav,.fl,.toast,.conf,.pc-tg,.pc-ck,.no-pr,.seg,.bd-h button{display:none!important}
   body,html{background:#fff}
 }
+/* V4.5 — Clientes: filtro ano + vários meses */
+.segm{flex-wrap:wrap}
+.seg button.sd{color:#B8C0CC}
+.seg button.sd.on{color:#fff}
+.fcr{font-size:12px;color:var(--t2);margin-left:auto}
+@media (max-width:760px){
+  .fl .seg{max-width:100%}
+  .fl .segm{display:grid;grid-template-columns:repeat(6,1fr)}
+  .segm button{padding:7px 4px}
+  .segm button:first-child{grid-column:1/-1}
+  .fcr{margin-left:0;width:100%}
+}
+/* V4.5 — login igual ao app de compras */
+.lgn-lb b{font-weight:600;color:var(--t1)}
+.lgn-av{font-size:12px;font-style:italic;color:var(--t3);line-height:1.5;margin-top:-6px}
+.lgn-f input::placeholder{color:#9AA4B2}
 </style>
