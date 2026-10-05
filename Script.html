@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V4.2
+   FLUXO VENDA DYNAMICS · Script V4.4
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -306,7 +306,7 @@ function cartao(p, comCk){
   var itens = p.itens.map(function(x){ return itemLinha(x, mud[x.c], p.fs); }).join('');
   if (p.alt) p.alt.ch.forEach(function(c){
     if (!/EXCLU/.test(c.t) || !c.c) return;
-    itens += '<tr class="exc"><td class="cd">' + esc(c.c) + '</td><td class="ds"><i class="tg ex">excluído rev ' + esc(p.alt.para) + '</i> ' + esc(c.d) + '</td><td class="r num">' + esc(fmtRv(c.de)) + '</td><td class="r num">—</td><td colspan="' + (p.fs ? 4 : 3) + '" class="sm">não soma no pedido</td></tr>';
+    itens += '<tr class="exc"><td class="cd">' + esc(c.c) + '</td><td class="ds"><i class="tg ex">excluído rev ' + esc(p.alt.para) + '</i> ' + esc(c.d) + '</td><td class="r num">' + esc(fmtRv(c.de)) + '</td><td class="r num">—</td><td colspan="' + (p.fs ? 5 : 3) + '" class="sm">não soma no pedido</td></tr>';
   });
   var n = p.itens.length;
   return '<div class="pc' + (SEL[p.id] ? ' sel' : '') + (p.st ? ' st-' + p.st.s.toLowerCase() : '') + '" id="pc_' + esc(p.id) + '">' +
@@ -328,7 +328,7 @@ function cartao(p, comCk){
       '<div class="pc-dv">Contra tabela ' + bdgDesvio(p) + (p.ct && p.ct < n ? '<span>' + p.ct + ' de ' + n + ' com tabela</span>' : '') + '</div>' +
     '</div>' +
     '<button class="pc-tg" onclick="this.parentNode.classList.toggle(\'ab\')">Ver ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + '</button>' +
-    '<div class="pc-r"><table class="it"><thead><tr><th>Código</th><th>Descrição</th><th class="r">Qtde × unit.</th><th class="r">Total</th><th>Contra tabela</th><th class="r">Preço tabela</th><th class="r">Diferença</th>' + (p.fs ? '<th class="r">Faturado</th>' : '') + '</tr></thead><tbody>' +
+    '<div class="pc-r"><table class="it"><thead><tr><th>Código</th><th>Descrição</th><th class="r">Qtde × unit.</th><th class="r">Total</th><th>Contra tabela</th><th class="r">Preço tabela</th><th class="r">Diferença</th>' + (p.fs ? '<th class="r">Faturado</th><th>Data fat.</th>' : '') + '</tr></thead><tbody>' +
       (itens || '<tr><td colspan="8">Sem itens lidos.</td></tr>') + '</tbody></table></div></div>';
 }
 var GRP_REV = [['EXCLU', 'Excluídos', 'ex'], ['INCLU', 'Incluídos', 'in'], ['QUANT', 'Quantidade alterada', 'al'], ['PRE', 'Preço alterado', 'al'], ['DESCRI', 'Descrição alterada', 'al'],
@@ -372,7 +372,7 @@ function itemLinha(x, mud, fs){
     '<td class="r num"><b>' + rs2(x.t) + '</b></td><td>' + bd + '</td>' +
     '<td class="r num">' + (x.tb > 0 ? rs2(x.tb) + '<small>' + (/^\d/.test(x.dt) ? 'rev ' + esc(x.dt) : 'sem data') + '</small>' : '—') + '</td>' +
     '<td class="r num ' + (dfv > 0.005 ? 'tx-ac' : dfv < -0.005 ? 'tx-ab' : '') + '">' + (x.tb > 0 ? sn(dfv) + rs2(dfv) : '—') + '</td>' +
-    (fs ? '<td class="r num ' + (x.fq >= x.q - 0.0001 ? 'tx-ac' : x.fq > 0 ? 'tx-am' : '') + '">' + (x.fq ? qt(x.fq) + ' de ' + qt(x.q) : '—') + '</td>' : '') + '</tr>';
+    (fs ? '<td class="r num ' + (x.fq >= x.q - 0.0001 ? 'tx-ac' : x.fq > 0 ? 'tx-am' : '') + '">' + (x.fq ? qt(x.fq) + ' de ' + qt(x.q) : '—') + '</td><td class="num">' + (x.fd ? esc(x.fd) : '—') + '</td>' : '') + '</tr>';
 }
 function marcar(id, v){ if (v) SEL[id] = 1; else delete SEL[id]; var e = document.getElementById('pc_' + id); if (e) e.classList.toggle('sel', !!v); contarSel(); }
 function contarSel(){ var e = document.getElementById('nSel'); if (e) e.textContent = Object.keys(SEL).length; }
@@ -879,6 +879,7 @@ function enviarFatEmail(b){
 }
 function diaUtilAnt(d){ var x = dObj(d); if (!x) return '—'; do { x.setDate(x.getDate() - 1); } while (x.getDay() === 0 || x.getDay() === 6); return ('0' + x.getDate()).slice(-2) + '/' + ('0' + (x.getMonth() + 1)).slice(-2) + '/' + x.getFullYear(); }
 function impMsg(t, m){ var e = document.getElementById('impSt'); if (e){ e.className = 'impst ' + t; e.innerHTML = (t === 'ld' ? '<i class="sp1"></i>' : '') + m; } }
+function jaLancado(p, l){ var os = String(p.oc).replace(/-\d{1,2}$/, ''); return (B.fat || []).some(function(f){ return String(f.oc).replace(/-\d{1,2}$/, '') === os && f.c === l.c && Math.abs(f.qf - l.q) < 0.0001; }); }
 function montaImp(x, nome){
   var porErp = {}; B.P.forEach(function(p){ if (p.erp) porErp[p.erp] = p; });
   var G = {}, ord = [];
@@ -888,11 +889,12 @@ function montaImp(x, nome){
     if (!p) st = ['sem', 'pedido ERP ' + l.erp + ' não está no app'];
     else if (!it) st = ['sem', 'item não existe no pedido'];
     else if (pend <= 0.0001) st = ['fat', 'já faturado no app'];
+    else if (jaLancado(p, l)) st = ['fat', 'já lançado antes (mesma qtde)'];
     else if (l.q > pend + 0.0001) st = ['dif', 'quantidade maior que o saldo (' + qt(pend) + ')'];
     else if (Math.abs(l.u - up) > 0.011) st = ['dif', 'valor diferente do pedido (' + rs2(up) + ')'];
     else st = ['ok', l.q < pend - 0.0001 ? 'parcial · saldo ' + qt(pend) : 'confere'];
     var k = l.erp; if (!G[k]){ G[k] = { erp: l.erp, p: p, obs: l.obs, dat: l.dat, nf: l.nf, l: [] }; ord.push(k); }
-    G[k].l.push({ i: i, x: l, it: it, up: up, pend: pend, st: st, ck: st[0] === 'ok' || st[0] === 'dif' });
+    G[k].l.push({ i: i, x: l, it: it, up: up, pend: pend, st: st, ck: st[0] === 'ok' || (st[0] === 'dif' && !/quantidade maior/.test(st[1])) });
   });
   var dc = {}; x.linhas.forEach(function(l){ if (l.dat) dc[l.dat] = (dc[l.dat] || 0) + 1; });
   var dt = Object.keys(dc).sort(function(a, b){ return dc[b] - dc[a]; })[0] || '';
@@ -906,10 +908,10 @@ function telaImp(){
     kp('Já faturados', n.fat, '', 'não serão gravados') + kp('Não encontrados', n.sem, n.sem ? 'ab' : '', 'pedido/item fora do app') + '</div>' +
     '<div class="fl"><span class="lb">Data do faturamento (nota)</span><input type="date" id="impDt" value="' + isoDe(F2.dt) + '" onchange="FIMP.dt=deIso(this.value);FIMP.dex=diaUtilAnt(FIMP.dt);document.getElementById(\'impEx\').value=isoDe(FIMP.dex)">' +
       '<span class="lb">Data da expedição</span><input type="date" id="impEx" value="' + isoDe(F2.dex || diaUtilAnt(F2.dt)) + '" onchange="FIMP.dex=deIso(this.value)"><span class="hn">a expedição é sugerida como o dia útil anterior; pode alterar</span></div>' +
-    '<div class="fl">' + (F2.temNf ? '<span class="lb">NF vem da planilha</span>' : '<span class="lb">Nº da NF</span><input id="impNf" placeholder="opcional — se vazio grava S/NF" style="width:300px">') +
+    '<div class="fl">' + (F2.temNf ? '<span class="lb">NF vem da planilha</span>' : '<span class="lb">Nº da NF</span><span class="hn">informe em cada pedido abaixo · se ficar vazio grava S/NF</span>') +
     '<span class="gap"></span><b>Total marcado: R$ ' + rs2(tot) + '</b><button class="btn" onclick="FIMP=null;ir(\'flan\')">Cancelar</button><button class="btn red" id="impB" onclick="gravaImp()">Registrar faturamento</button></div>';
   F2.ord.forEach(function(k){ var g = F2.G[k], p = g.p;
-    h += '<div class="cx"><h3>' + (p ? esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.oc || 'ERP ' + p.erp)) + ' · ' + esc(p.cli) : 'ERP ' + esc(g.erp)) + ' <span class="hn">· ERP ' + esc(g.erp) + ' · ' + esc(g.obs) + ' · data no relatório ' + esc(g.dat || '—') + '</span></h3>' +
+    h += '<div class="cx"><h3>' + (p ? esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.oc || 'ERP ' + p.erp)) + ' · ' + esc(p.cli) : 'ERP ' + esc(g.erp)) + ' <span class="hn">· ERP ' + esc(g.erp) + ' · ' + esc(g.obs) + ' · data no relatório ' + esc(g.dat || '—') + '</span>' + (p ? '<span class="sp"></span><span class="lb">NF</span><input class="nfin" placeholder="nº da nota" value="' + esc(g.nfDig || g.nf || '') + '" oninput="FIMP.G[\'' + k + '\'].nfDig=this.value">' : '') + '</h3>' +
       '<div class="tbw"><table class="tb ft"><thead><tr><th></th><th>Código</th><th>Descrição</th><th class="r">Qtde</th><th class="r">Unit. relatório</th><th class="r">Unit. pedido</th><th class="r">Total</th><th>Conferência</th></tr></thead><tbody>' +
       g.l.map(function(y){ var c = { ok: 'ac', dif: 'ab', fat: 'nd', sem: 'ab' }[y.st[0]];
         return '<tr><td>' + (y.st[0] === 'ok' || y.st[0] === 'dif' ? '<input type="checkbox" ' + (y.ck ? 'checked' : '') + ' onchange="FIMP.G[\'' + k + '\'].l[' + g.l.indexOf(y) + '].ck=this.checked;ir(\'flan\')">' : '') + '</td><td class="cd">' + esc(y.x.c) + '</td><td>' + esc(y.x.d) + '</td><td class="r num">' + qt(y.x.q) + '</td><td class="r num">' + rs2(y.x.u) + '</td><td class="r num">' + (y.it ? rs2(y.up) : '—') + '</td><td class="r num"><b>' + rs2(y.x.q * y.x.u) + '</b></td><td><span class="bdg ' + c + '">' + esc(y.st[1]) + '</span></td></tr>'; }).join('') +
@@ -928,7 +930,7 @@ function gravaImp(){
     var its = g.l.filter(function(y){ return y.ck && y.it; }).map(function(y){ return { c: y.x.c, d: y.it.d, qp: y.pend, qf: y.x.q, up: y.up, uf: y.x.u }; });
     if (!its.length) return;
     var dnf = dnfSel;                                        // V4.1 — data escolhida pelo faturista
-    lotes.push({ id: p.id, oc: p.oc, cli: p.cli, nf: FIMP.temNf ? (g.nf || 'S/NF') : (nfIn && nfIn.value.trim() || 'S/NF'), dnf: dnf, dex: dexSel, itens: its });
+    lotes.push({ id: p.id, oc: p.oc, cli: p.cli, nf: String(g.nfDig || g.nf || '').trim() || 'S/NF', dnf: dnf, dex: dexSel, itens: its });
   });
   if (!lotes.length){ toast('Nada marcado para gravar.'); return; }
   var b = document.getElementById('impB'); b.disabled = true; b.textContent = 'Gravando…';
