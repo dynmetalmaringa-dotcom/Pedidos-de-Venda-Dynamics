@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V4.5
+ * Arquivo: App              Versão: V4.6
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -1212,8 +1212,8 @@ function _nh(x) { return String(x).toLowerCase().normalize('NFD').replace(/[\u03
 function _prevAnalisar_(v) {
   var cab = (v[0] || []).map(_nh);
   function col(re) { for (var i = 0; i < cab.length; i++) if (re.test(cab[i])) return i; return -1; }
-  var C = { erp: col(/^codigo$/), obs: col(/observacao/), c: col(/produto codigo/), d: col(/produto descricao/), q: col(/^qtde?$|^qtd /), u: col(/^valor unit/),
-            t: col(/^valor total/), pv: col(/previsao/), sit: col(/^situacao$/), oc: col(/ordem (de )?compra/), st: col(/^status$/) };
+  var C = { erp: col(/^codigo$/), obs: col(/observacao/), c: col(/produto codigo/), d: col(/produto descricao/), q: col(/^qtde?( produto)?$|^qtd /), u: col(/^valor (produto )?unit/),
+            t: col(/^valor (produto )?total/), pv: col(/previsao/), sit: col(/^situacao$/), oc: col(/ordem (de )?compra$/), st: col(/^status$/) };
   if (C.erp < 0 || C.pv < 0 || C.oc < 0 || C.st < 0 || C.c < 0 || C.q < 0 || C.u < 0)
     return { ok: false, msg: 'Planilha fora do padrão. Preciso do relatório de pedidos de venda do ForWood, com as colunas Codigo, Produto Codigo, QTD, VALOR UNIT, PREVISAO, Numero Ordem Compra e Status.' };
   var E = {};
