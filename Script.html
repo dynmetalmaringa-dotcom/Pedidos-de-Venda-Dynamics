@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V4.5
+   FLUXO VENDA DYNAMICS · Script V4.7
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -334,7 +334,7 @@ function cartao(p, comCk){
       '<div class="pc-c">' + esc(p.cli) + (p.rv ? ' <em>· ' + esc(p.rv) + '</em>' : '') + (p.loc ? ' <em>· ' + esc(p.loc) + '</em>' : '') + '</div>' +
       '<div class="pc-m">ERP ' + esc(p.erp) + ' · ' + n + ' ite' + (n === 1 ? 'm' : 'ns') + (p.dc ? ' · <span class="dcg' + (+p.rev > 0 || p.alt ? ' rv' : '') + '">entrada no app ' + esc(String(p.dc).substring(0, 16)) + '</span>' : '') + '</div>' +
       '<div class="pc-d"><div><span>Data do pedido</span><b>' + esc(p.dp) + '</b><em>' + semana(p.dp) + '</em></div>' +
-        '<div><span>Entrega</span><b>' + esc(p.ent) + '</b><em class="' + pz.c + '">' + pz.t + '</em></div></div>' +
+        '<div><span>Entrega</span><b>' + esc(p.ent) + '</b><em class="' + pz.c + '">' + pz.t + '</em>' + chipData(p) + '</div></div>' +
       '<div class="pc-v"><div class="dy"><span>Valor cheio</span><b>R$ ' + rs(p.v) + '</b></div>' +
         '<div><span>Valor Dynamics ' + (p.fx === 1 ? '100%' : '40%') + '</span><b>R$ ' + rs(p.v40) + '</b></div></div>' +
       blocoSt(p) + blocoRev(p) +
@@ -574,7 +574,7 @@ function imprimirPcp(){
   var t = 'Carteira de entrega' + (FP.m ? ' · ' + mesNome(FP.m) : '') + (FP.de || FP.ate ? ' · ' + (FP.de || 'início') + ' a ' + (FP.ate || 'fim') : '') + (FP.cli ? ' · ' + FP.cli : '');
   var hoje = chave(hojeBr());
   var h = '<table class="tb lp"><thead><tr><th></th><th>Entrega</th><th>OS / ID</th><th>Cliente</th><th>Loja</th><th>Cidade</th><th>Data pedido</th><th class="r">Itens</th><th>Situação</th><th class="r">Saldo (cheio)</th></tr></thead><tbody>' +
-    l.map(function(p){ var k = chave(p.ent); return '<tr><td class="lgp">' + marca(p.cd, p.cli) + '</td><td class="num"' + (k && k < hoje ? ' style="color:#D0121C;font-weight:700"' : '') + '>' + (p.ent || '—') + '</td><td class="cd">' + esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.os || 'ERP ' + p.erp)) + '</td><td><b>' + esc(p.cli) + '</b></td><td>' + esc(p.rv) + '</td><td>' + esc(p.loc) + '</td><td class="num">' + p.dp + '</td><td class="r num">' + p.itens.length + '</td><td>' + (p.st ? p.st.s.toLowerCase() + ' · ' + esc(p.st.m) : p.fs === 'PARCIAL' ? 'faturado parcial' : (k && k < hoje ? 'vencido' : 'aberto')) + '</td><td class="r num"><b>' + rs2(p.sal) + '</b></td></tr>'; }).join('') +
+    l.map(function(p){ var k = chave(p.ent); return '<tr><td class="lgp">' + marca(p.cd, p.cli) + '</td><td class="num"' + (k && k < hoje ? ' style="color:#D0121C;font-weight:700"' : '') + '>' + (p.ent || '—') + chipData(p) + '</td><td class="cd">' + esc(p.rt ? String(p.oc).replace(/^RT/, 'ID ') : (p.os || 'ERP ' + p.erp)) + '</td><td><b>' + esc(p.cli) + '</b></td><td>' + esc(p.rv) + '</td><td>' + esc(p.loc) + '</td><td class="num">' + p.dp + '</td><td class="r num">' + p.itens.length + '</td><td>' + (p.st ? p.st.s.toLowerCase() + ' · ' + esc(p.st.m) : p.fs === 'PARCIAL' ? 'faturado parcial' : (k && k < hoje ? 'vencido' : 'aberto')) + '</td><td class="r num"><b>' + rs2(p.sal) + '</b></td></tr>'; }).join('') +
     '<tr class="ttf"><td></td><td colspan="8"><b>Total · ' + l.length + ' pedido(s)</b></td><td class="r num"><b>' + rs2(tot) + '</b></td></tr></tbody></table>';
   imprimir(t, h, 'IMPRESSÃO PCP', t + ' · ' + l.length + ' pedidos');
 }
@@ -859,13 +859,16 @@ function audExcel(){
 
 /* ============================ UPLOAD E REGISTROS ============================ */
 function telaUp(){
-  var h = '<div class="up3">' +
+  var h = '<div class="imp no-pr"><div><b>Atualizar datas de entrega e conferir revisões (relatório do ForWood)</b><span>Rode no ForWood o relatório de pedidos de venda em Excel (.xlsx) e envie aqui. O app mostra o que mudou e, depois da sua conferência, atualiza <b>somente a data de entrega</b>. O mesmo envio gera o relatório de revisões para o Orçamento.</span></div>' +
+    '<label class="btn dk">Escolher relatório<input type="file" accept=".xlsx,.xls" style="display:none" onchange="impDatas(this.files[0],this)"></label><div id="impSt" class="impst"></div></div>' +
+    (DT ? telaDatas() : '') + '<div class="up3">' +
     '<div class="drop"><b>Pedido de venda (PDF)</b><p>Um ou vários PDFs do ForWood. Entram na fila e são lidos no próximo processamento.</p><input type="file" accept="application/pdf" multiple onchange="subir(this,\'pedido\')"><div id="st_pedido"></div></div>' +
     '<div class="drop"><b>Tabela de preço (Excel)</b><p>Baixe a vigente na lista abaixo (botão Excel), corrija e envie. O arquivo recebe a data e hora do envio no nome e substitui a vigente em até 10 min.</p><input type="file" accept=".xlsx,.xlsm,.xls" multiple onchange="subir(this,\'tabela\')"><div id="st_tabela"></div></div>' +
     '<div class="drop"><b>Logo do cliente</b><p>PNG ou JPG até 45 KB.</p><input type="text" id="lgCod" placeholder="Código Dyn (ex.: 416)" maxlength="3"><input type="text" id="lgCli" placeholder="Nome do cliente"><input type="file" accept="image/png,image/jpeg" onchange="subir(this,\'logo\')"><div id="st_logo"></div></div></div>';
   var tb = (B.tabelas || []).slice().sort(function(a, b){ return (b.dMax || 0) - (a.dMax || 0); });
   h += '<div class="sec">Tabelas vigentes <span>última carga e tempo sem revisão por cliente</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>Arquivo</th><th>Carga</th><th class="r">Itens</th><th class="r">Sem data</th><th class="r">Duplicados</th><th class="r">Revisão mais recente</th><th class="r">Revisão mais antiga</th><th></th></tr></thead><tbody>' +
     (tb.map(function(t){ return '<tr class="lk" onclick="AUD.cod=\'' + t.cod + '\';ir(\'aud\')"><td><b>' + esc(t.cli) + '</b> <small>' + t.cod + '</small></td><td>' + esc(t.arq) + '</td><td class="num">' + esc(t.carga) + '</td><td class="r num">' + t.it + '</td><td class="r num">' + t.sd + '</td><td class="r num">' + t.dup + '</td><td class="r"><span class="dias ' + clDias(t.dMin) + '">' + txDias(t.dMin) + '</span></td><td class="r"><span class="dias ' + clDias(t.dMax) + '">' + txDias(t.dMax) + '</span></td><td><button class="btn sm" onclick="event.stopPropagation();baixarTab(\'' + t.cod + '\',this)">Excel</button></td></tr>'; }).join('') || '<tr><td colspan="9">Nenhuma tabela carregada.</td></tr>') + '</tbody></table></div>';
+  h += telaHistDatas();
   return h;
 }
 function telaReg(){
@@ -887,6 +890,164 @@ function telaReg(){
   return h;
 }
 function recarregar(){ atualizar(false); }
+
+/* ============================ V4.6 — DATAS DE ENTREGA E REVISÕES (relatório do ForWood) ============================ */
+var DT = null;
+function chipData(p){ return p.da ? '<i class="tg da" title="Data de entrega alterada em ' + esc(p.da.dh) + ' por ' + esc(p.da.u) + (p.da.k > 1 ? ' · ' + p.da.k + ' alterações' : '') + '">alterada · era ' + esc(p.da.a) + '</i>' : ''; }
+function impDatas(f, inp){
+  if (!f) return;
+  if (inp) inp.value = '';
+  impMsg('ld', 'Lendo o relatório <b>' + esc(f.name) + '</b>… aguarde, pode levar até 1 minuto.');
+  var r = new FileReader();
+  r.onerror = function(){ impMsg('er', 'Não consegui abrir o arquivo no navegador. Tente de novo.'); };
+  r.onload = function(){ var b64 = String(r.result).split(',')[1];
+    srv('lerPrevisoes', [TK, b64, f.name], function(x){
+      if (!x || !x.ok){ impMsg('er', esc((x && x.msg) || 'O relatório não pôde ser lido.')); return; }
+      x.nome = f.name; x.sel = {}; x.datas.forEach(function(d){ x.sel[d.id] = true; });
+      DT = x; ir('up');
+      impMsg('ok', 'Relatório lido: ' + x.res.conf + ' pedido(s) conferido(s). Confira as datas abaixo e clique em <b>Aplicar</b>.');
+    }, function(e){ impMsg('er', 'Falha ao ler no servidor: ' + esc(e)); }); };
+  r.readAsDataURL(f);
+}
+function difDias(n){ return n === null || n === undefined ? '' : (n > 0 ? '+' : '') + n + ' d'; }
+function telaDatas(){
+  var x = DT, r = x.res, nrev = r.nova + r.os + r.valor + r.antiga, nsel = x.datas.filter(function(d){ return x.sel[d.id]; }).length;
+  var h = '<div class="sec">Conferência do relatório · ' + esc(x.nome) + '</div><div class="kpis">' +
+    kp('Pedidos conferidos', r.conf, '', 'do app com o ForWood') + kp('Data igual', r.igual, 'ac', 'sem alteração') +
+    kp('Data diferente', x.datas.length, x.datas.length ? 'ab' : '', 'a atualizar') + kp('Revisões a conferir', nrev, nrev ? 'ab' : '', 'relatório para o Orçamento') +
+    kp('Faltam no app', r.faltam, r.faltam ? 'ab' : '', 'em aberto no ForWood') + kp('Fora do relatório', r.noRel, '', 'pedidos antigos do app') + '</div>';
+  h += '<div class="fl"><span class="lb">Datas de entrega</span><span class="hn">marque as que valem · só a data é alterada</span><span class="gap"></span>' +
+    '<button class="btn" onclick="dtMarca(true)">Marcar todas</button><button class="btn" onclick="dtMarca(false)">Desmarcar</button>' +
+    '<button class="btn dk" onclick="relatorioRev()">Relatório de revisões (Excel)</button><button class="btn dk" onclick="relatorioRevPdf()">Relatório de revisões (PDF)</button><button class="btn" onclick="DT=null;ir(\'up\')">Fechar</button>' +
+    '<button class="btn red" id="dtB" onclick="aplicaDatas()"' + (x.datas.length ? '' : ' disabled') + '>Aplicar ' + nsel + ' data(s)</button></div>';
+  if (!x.datas.length) h += '<div class="vazio"><b>Todas as datas já estão iguais ao ForWood</b><p>Nada a atualizar neste relatório.</p></div>';
+  else h += '<div class="tbw"><table class="tb"><thead><tr><th></th><th>Cliente</th><th>OS</th><th>ERP</th><th class="num">Entrega no app</th><th class="num">Entrega no ForWood</th><th class="r">Diferença</th><th>Mês</th><th>Situação no ForWood</th><th class="r">Valor cheio</th></tr></thead><tbody>' +
+    x.datas.map(function(d){ return '<tr><td><input type="checkbox" ' + (x.sel[d.id] ? 'checked' : '') + ' onchange="DT.sel[\'' + d.id + '\']=this.checked;ir(\'up\')"></td><td><b>' + esc(d.cli) + '</b></td><td class="cd">' + esc(d.oc) + '</td><td class="num">' + esc(d.erp) + '</td><td class="num">' + esc(d.ant || '—') + '</td><td class="num"><b>' + esc(d.nov) + '</b></td><td class="r num ' + (d.dd > 0 ? 'tx-ab' : 'tx-ac') + '">' + difDias(d.dd) + '</td><td>' + (d.mm ? '<span class="bdg am">muda de mês</span>' : '') + '</td><td>' + esc(d.st) + (d.multi ? ' <small>(itens com datas diferentes: usei a maior)</small>' : '') + '</td><td class="r num">' + rs2(d.v) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  if (x.semdata.length) h += '<div class="sec">Sem data no ForWood <span>o ForWood mostra 30/12 ou 31/12 (sem data definida): a data do app foi mantida</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>OS</th><th>ERP</th><th class="num">Entrega no app</th><th class="num">ForWood</th></tr></thead><tbody>' +
+    x.semdata.map(function(d){ return '<tr><td><b>' + esc(d.cli) + '</b></td><td class="cd">' + esc(d.oc) + '</td><td class="num">' + esc(d.erp) + '</td><td class="num">' + esc(d.ent) + '</td><td class="num">' + esc(d.fw) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  if (x.revs.length){
+    var cor = { NOVA: 'ab', OS: 'ab', VALOR: 'am', ANTIGA: 'nd' }, nome = { NOVA: 'Revisão nova no ForWood', OS: 'OS diferente', VALOR: 'Valor diferente', ANTIGA: 'ForWood mais antigo' };
+    h += '<div class="sec">Revisões a conferir <span>o relatório em Excel traz também os itens que mudaram</span></div><div class="tbw"><table class="tb"><thead><tr><th>Situação</th><th>OS no app</th><th>OS no ForWood</th><th>Cliente</th><th class="r">Valor app (40%)</th><th class="r">Valor ForWood (40%)</th><th class="r">Itens</th><th>O que fazer</th></tr></thead><tbody>' +
+      x.revs.map(function(v){ return '<tr><td><span class="bdg ' + cor[v.tipo] + '">' + nome[v.tipo] + '</span></td><td class="cd">' + esc(v.oc) + '</td><td class="cd">' + esc(v.ocE) + '</td><td><b>' + esc(v.cli) + '</b></td><td class="r num">' + rs2(v.v40) + '</td><td class="r num">' + rs2(v.vE) + '</td><td class="r num">' + (v.ni || '') + '</td><td>' + esc(v.acao) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  }
+  if (x.faltam.length) h += '<div class="sec">Em aberto no ForWood e fora do app <span>o Orçamento precisa subir o PDF</span></div><div class="tbw"><table class="tb"><thead><tr><th>ERP</th><th>OS no ForWood</th><th>Cliente</th><th class="num">Entrega</th><th>Situação</th><th class="r">Valor (40%)</th></tr></thead><tbody>' +
+    x.faltam.map(function(v){ return '<tr><td class="num">' + esc(v.erp) + '</td><td class="cd">' + esc(v.oc) + '</td><td><b>' + esc(v.cli) + '</b></td><td class="num">' + esc(v.ent) + '</td><td>' + esc(v.st) + '</td><td class="r num">' + rs2(v.vE) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  return h;
+}
+function dtMarca(v){ DT.datas.forEach(function(d){ DT.sel[d.id] = v; }); ir('up'); }
+function aplicaDatas(){
+  var l = DT.datas.filter(function(d){ return DT.sel[d.id]; }).map(function(d){ return { id: d.id, nov: d.nov }; });
+  if (!l.length){ toast('Nenhuma data marcada.'); return; }
+  if (!confirm('Atualizar a data de entrega de ' + l.length + ' pedido(s)? Só a data será alterada e fica registrada no histórico.')) return;
+  var b = document.getElementById('dtB'); b.disabled = true; b.textContent = 'Gravando…';
+  srv('gravarPrevisoes', [TK, l, DT.nome], function(r){
+    toast(r.msg);
+    if (r.ok){ DT.aplic = (DT.aplic || []).concat(DT.datas.filter(function(d){ return DT.sel[d.id]; })); DT.datas = DT.datas.filter(function(d){ return !DT.sel[d.id]; }); DT.res.datas = DT.datas.length; atualizar(false); setTimeout(function(){ ir('up'); impMsg('ok', esc(r.msg) + ' Os pedidos ficam marcados como “alterada” no app. Baixe o relatório de revisões para o Orçamento.'); }, 1500); }
+    else { b.disabled = false; b.textContent = 'Aplicar'; impMsg('er', esc(r.msg)); }
+  }, function(e){ b.disabled = false; b.textContent = 'Aplicar'; impMsg('er', 'Falha ao gravar: ' + esc(e)); });
+}
+function carregaXlsx(cb){
+  if (window.XLSX && window.XLSX.__estilo) return cb(true);
+  function carrega(url, ok, er){ var s = document.createElement('script'); s.src = url; s.onload = ok; s.onerror = er; document.head.appendChild(s); }
+  /* V4.7 — biblioteca com estilos (cores, bordas); se não carregar, usa a comum (sem cor) */
+  carrega('https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js', function(){ if (window.XLSX) window.XLSX.__estilo = true; cb(!!window.XLSX); },
+    function(){ carrega('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', function(){ cb(!!window.XLSX); }, function(){ cb(false); }); });
+}
+var NOME_REV = { NOVA: 'Revisão nova no ForWood: subir o PDF', OS: 'OS diferente: conferir o PDF carregado', VALOR: 'Mesma revisão, valor diferente', ANTIGA: 'ForWood em revisão mais antiga: conferir' };
+function dadosRev(){
+  var x = DT, r = x.res;
+  var A = [['Situação', 'OS no app', 'Rev. no app', 'OS no ForWood', 'Cliente', 'Pedido ERP', 'Situação no ForWood', 'Entrega no ForWood', 'Valor app (40%)', 'Valor ForWood (40%)', 'Diferença', 'Itens divergentes', 'O que fazer']];
+  x.revs.forEach(function(v){ A.push([NOME_REV[v.tipo], v.oc, v.revA, v.ocE, v.cli, v.erp, v.st, v.ent, v.v40, v.vE, v.dv === null ? '' : v.dv, v.ni, v.acao]); });
+  var I = [['Pedido ERP', 'OS no app', 'Cliente', 'Código', 'Descrição', 'Diferença', 'Qtde app', 'Qtde ForWood', 'Unit. app (40%)', 'Unit. ForWood (40%)']];
+  x.itens.forEach(function(i){ I.push([i.erp, i.oc, i.cli, i.c, i.d, i.t, i.qa === null ? '' : i.qa, i.qe === null ? '' : i.qe, i.ua === null ? '' : i.ua, i.ue === null ? '' : i.ue]); });
+  var F = [['Pedido ERP', 'OS no ForWood', 'Cliente', 'Entrega no ForWood', 'Situação no ForWood', 'Valor ForWood (40%)', 'O que fazer']];
+  x.faltam.forEach(function(v){ F.push([v.erp, v.oc, v.cli, v.ent, v.st, v.vE, 'Subir o PDF do pedido']); });
+  var D = [['Pedido ERP', 'OS no app', 'Cliente', 'Entrega no app (antes)', 'Entrega no ForWood', 'Diferença (dias)', 'Situação no ForWood', 'No app']];
+  (x.aplic || []).forEach(function(d){ D.push([d.erp, d.oc, d.cli, d.ant, d.nov, d.dd === null ? '' : d.dd, d.st, 'Data atualizada']); });
+  x.datas.forEach(function(d){ D.push([d.erp, d.oc, d.cli, d.ant, d.nov, d.dd === null ? '' : d.dd, d.st, 'Ainda não atualizada']); });
+  x.semdata.forEach(function(d){ D.push([d.erp, d.oc, d.cli, d.ent, d.fw + ' (sem data no ForWood)', '', d.st, 'Mantida a data do app']); });
+  var hoje = new Date().toLocaleDateString('pt-BR');
+  var R = [['Relatório de diferenças · app × ForWood'], ['Emitido em', hoje + ' por ' + EU.n], ['Arquivo do ForWood', x.nome], [],
+    ['Pedidos conferidos', r.conf], ['Revisão nova no ForWood (subir PDF)', r.nova], ['OS diferente (conferir PDF carregado)', r.os], ['Mesma revisão, valor diferente', r.valor], ['ForWood em revisão mais antiga', r.antiga],
+    ['Em aberto no ForWood e fora do app (subir PDF)', r.faltam], ['Datas de entrega diferentes', x.datas.length + (x.aplic || []).length + x.semdata.length], [],
+    ['Valores a 40% (valor Dynamics). Pedidos parciais: o ForWood não informa o saldo, então os itens não são comparados.']];
+  return { A: A, I: I, F: F, D: D, R: R };
+}
+/* formatação das abas do Excel: cabeçalho escuro, linhas zebradas, bordas, cores por situação, números e larguras */
+var COR_REV = { 'Revisão nova': 'F8D0D0', 'OS diferente': 'F8D0D0', 'Mesma revisão': 'FFF2C2', 'ForWood em revisão': 'E6E9ED' };
+function estiloAba(ws, M, larg, cols){
+  var fio = { style: 'thin', color: { rgb: 'D5DAE1' } }, bd = { top: fio, bottom: fio, left: fio, right: fio };
+  ws['!cols'] = larg.map(function(c){ return { wch: c }; });
+  ws['!rows'] = [{ hpt: 32 }];
+  for (var R = 0; R < M.length; R++) for (var C = 0; C < M[0].length; C++){
+    var ref = XLSX.utils.encode_cell({ r: R, c: C }), c = ws[ref]; if (!c) c = ws[ref] = { t: 's', v: '' };
+    if (R === 0) c.s = { font: { name: 'Arial', sz: 10, bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '1F2630' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: bd };
+    else {
+      c.s = { font: { name: 'Arial', sz: 10 }, border: bd, alignment: { vertical: 'top', wrapText: !!(cols.txt && cols.txt.indexOf(C) >= 0) } };
+      if (R % 2 === 0) c.s.fill = { fgColor: { rgb: 'F4F6F9' } };
+      if (cols.num && cols.num.indexOf(C) >= 0 && typeof c.v === 'number'){ c.z = '#,##0.00;[Red]-#,##0.00'; c.s.alignment.horizontal = 'right'; }
+      if (cols.dias && cols.dias.indexOf(C) >= 0 && typeof c.v === 'number'){ c.z = '+0;-0;0'; c.s.alignment.horizontal = 'right'; }
+      if (cols.sit === C){ var k = Object.keys(COR_REV).filter(function(x){ return String(c.v).indexOf(x) === 0; })[0]; if (k){ c.s.fill = { fgColor: { rgb: COR_REV[k] } }; c.s.font.bold = true; } }
+    }
+  }
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: M.length - 1, c: M[0].length - 1 } }) };
+  ws['!views'] = [{ state: 'frozen', ySplit: 1 }]; ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+}
+function relatorioRev(){
+  var x = DT; if (!x){ return; }
+  var d = dadosRev(), nomeArq = 'Diferencas_ForWood_' + new Date().toISOString().substring(0, 10) + '.xlsx';
+  reg('DOWNLOAD EXCEL REVISÕES FORWOOD', nomeArq + ' · ' + x.revs.length + ' revisão(ões) · ' + x.faltam.length + ' faltam');
+  carregaXlsx(function(ok){
+    if (!ok){ csv('Revisoes_ForWood.csv', d.A); toast('Não consegui carregar o gerador de Excel. Baixei em CSV (abre no Excel).'); return; }
+    var wb = XLSX.utils.book_new();
+    function aba(nm, M, larg, cols){ var ws = XLSX.utils.aoa_to_sheet(M); if (XLSX.__estilo) estiloAba(ws, M, larg, cols); else ws['!cols'] = larg.map(function(c){ return { wch: c }; }); XLSX.utils.book_append_sheet(wb, ws, nm); }
+    var rs_ = XLSX.utils.aoa_to_sheet(d.R); rs_['!cols'] = [{ wch: 52 }, { wch: 40 }];
+    if (XLSX.__estilo){
+      rs_['A1'].s = { font: { name: 'Arial', sz: 15, bold: true, color: { rgb: 'D0121C' } } };
+      for (var i = 2; i <= d.R.length; i++){ var a = rs_['A' + i], b = rs_['B' + i]; if (a && a.v) a.s = { font: { name: 'Arial', sz: 10, bold: i >= 5 && i <= 11 } }; if (b) b.s = { font: { name: 'Arial', sz: 11, bold: true }, alignment: { horizontal: 'left' } }; }
+      if (rs_['A13']) rs_['A13'].s = { font: { name: 'Arial', sz: 9, italic: true, color: { rgb: '566170' } } };
+    }
+    XLSX.utils.book_append_sheet(wb, rs_, 'Resumo');
+    aba('Revisões', d.A, [36, 16, 9, 16, 22, 11, 18, 16, 15, 17, 13, 10, 70], { sit: 0, num: [8, 9, 10], txt: [12] });
+    aba('Itens divergentes', d.I, [11, 16, 22, 12, 46, 24, 11, 13, 15, 17], { num: [6, 7, 8, 9], txt: [4] });
+    aba('Faltam no app', d.F, [11, 16, 52, 17, 18, 17, 24], { num: [5] });
+    aba('Datas', d.D, [11, 16, 22, 19, 32, 14, 18, 24], { dias: [5] });
+    XLSX.writeFile(wb, nomeArq); toast('Relatório gerado: ' + nomeArq);
+  });
+}
+/* V4.7 — mesmo relatório em PDF (impressão A4 paisagem, “Salvar como PDF”) */
+function relatorioRevPdf(){
+  var x = DT; if (!x) return;
+  var r = x.res, cor = { NOVA: 'ab', OS: 'ab', VALOR: 'am', ANTIGA: 'nd' };
+  var h = '<div class="kpis">' + kp('Pedidos conferidos', r.conf, '', 'do app com o ForWood') + kp('Revisão nova', r.nova, r.nova ? 'ab' : '', 'subir o PDF') + kp('OS diferente', r.os, r.os ? 'ab' : '', 'conferir o PDF') +
+    kp('Valor diferente', r.valor, '', 'mesma revisão') + kp('Faltam no app', r.faltam, r.faltam ? 'ab' : '', 'subir o PDF') + kp('Datas diferentes', x.datas.length + (x.aplic || []).length + x.semdata.length, '', 'no ForWood') + '</div>';
+  h += '<div class="sec">1. Revisões a conferir <span>o Orçamento deve subir o PDF da revisão indicada</span></div>';
+  if (!x.revs.length) h += '<p>Nenhuma diferença de revisão encontrada.</p>';
+  else h += '<table class="tb tfx"><colgroup><col style="width:11%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:7.5%"><col style="width:9%"><col style="width:10.5%"><col style="width:6%"><col style="width:29%"></colgroup><thead><tr><th>Situação</th><th>OS app</th><th>OS ForWood</th><th>Cliente</th><th>Entrega</th><th class="r">Valor app</th><th class="r">Valor ForWood</th><th class="r">Itens</th><th>O que fazer</th></tr></thead><tbody>' +
+    x.revs.map(function(v){ return '<tr><td><span class="bdg ' + cor[v.tipo] + '">' + esc(NOME_REV[v.tipo].split(':')[0]) + '</span></td><td class="cd">' + esc(v.oc) + '</td><td class="cd">' + esc(v.ocE) + '</td><td><b>' + esc(v.cli) + '</b></td><td class="num">' + esc(v.ent) + '</td><td class="r num">' + rs2(v.v40) + '</td><td class="r num">' + rs2(v.vE) + '</td><td class="r num">' + (v.ni || '') + '</td><td>' + esc(v.acao) + '</td></tr>'; }).join('') + '</tbody></table>';
+  if (x.itens.length){
+    h += '<div class="sec">2. Itens que mudaram por pedido</div>';
+    var g = {}, ord = []; x.itens.forEach(function(i){ if (!g[i.erp]){ g[i.erp] = { oc: i.oc, cli: i.cli, l: [] }; ord.push(i.erp); } g[i.erp].l.push(i); });
+    ord.forEach(function(k){ var q = g[k];
+      h += '<div class="pdg"><div class="pdg-h"><b>' + esc(q.oc) + '</b> · ' + esc(q.cli) + ' <span>pedido ERP ' + esc(k) + ' · ' + q.l.length + ' item(ns)</span></div><table class="tb"><thead><tr><th>Código</th><th>Descrição</th><th>Diferença</th><th class="r">Qtde app</th><th class="r">Qtde ForWood</th><th class="r">Unit. app</th><th class="r">Unit. ForWood</th></tr></thead><tbody>' +
+        q.l.map(function(i){ return '<tr><td class="cd">' + esc(i.c) + '</td><td>' + esc(i.d) + '</td><td><b>' + esc(i.t) + '</b></td><td class="r num">' + (i.qa === null ? '—' : qt(i.qa)) + '</td><td class="r num">' + (i.qe === null ? '—' : qt(i.qe)) + '</td><td class="r num">' + (i.ua === null ? '—' : rs2(i.ua)) + '</td><td class="r num">' + (i.ue === null ? '—' : rs2(i.ue)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; });
+  }
+  if (x.faltam.length) h += '<div class="sec">3. Em aberto no ForWood e fora do app <span>subir o PDF do pedido</span></div><table class="tb"><thead><tr><th>Pedido ERP</th><th>OS no ForWood</th><th>Cliente</th><th class="num">Entrega</th><th>Situação</th><th class="r">Valor (40%)</th></tr></thead><tbody>' +
+    x.faltam.map(function(v){ return '<tr><td class="num">' + esc(v.erp) + '</td><td class="cd">' + esc(v.oc) + '</td><td><b>' + esc(v.cli) + '</b></td><td class="num">' + esc(v.ent) + '</td><td>' + esc(v.st) + '</td><td class="r num">' + rs2(v.vE) + '</td></tr>'; }).join('') + '</tbody></table>';
+  var D = dadosRev().D.slice(1);
+  if (D.length) h += '<div class="sec">4. Datas de entrega diferentes <span>app × ForWood</span></div><table class="tb"><thead><tr><th>Pedido ERP</th><th>OS no app</th><th>Cliente</th><th class="num">Entrega no app (antes)</th><th class="num">Entrega no ForWood</th><th class="r">Dif. (dias)</th><th>No app</th></tr></thead><tbody>' +
+    D.map(function(d){ return '<tr><td class="num">' + esc(d[0]) + '</td><td class="cd">' + esc(d[1]) + '</td><td><b>' + esc(d[2]) + '</b></td><td class="num">' + esc(d[3] || '—') + '</td><td class="num"><b>' + esc(d[4]) + '</b></td><td class="r num">' + (d[5] === '' ? '' : difDias(d[5])) + '</td><td>' + esc(d[7]) + '</td></tr>'; }).join('') + '</tbody></table>';
+  h += '<p style="font-size:9px;color:#8C96A4;margin-top:8px">Valores a 40% (valor Dynamics). Pedidos parciais: o ForWood não informa o saldo, então os itens não são comparados. Arquivo do ForWood: ' + esc(x.nome) + '.</p>';
+  imprimir('Relatório de diferenças · app × ForWood', h, 'DOWNLOAD PDF REVISÕES FORWOOD', x.revs.length + ' revisão(ões) · ' + x.faltam.length + ' faltam · ' + x.itens.length + ' item(ns)');
+}
+function telaHistDatas(){
+  var l = B.hd || [];
+  var h = '<div class="sec">Alterações de data de entrega <span>feitas pelo relatório do ForWood · últimas ' + l.length + '</span></div>';
+  if (!l.length) return h + '<div class="vazio"><p>Nenhuma data foi alterada ainda.</p></div>';
+  return h + '<div class="fl"><span class="gap"></span><button class="btn" onclick="excelHistDatas()">Excel</button></div><div class="tbw alto"><table class="tb"><thead><tr><th>Data e hora</th><th>Quem</th><th>OS</th><th>ERP</th><th>Cliente</th><th class="num">Era</th><th class="num">Ficou</th><th class="r">Diferença</th></tr></thead><tbody>' +
+    l.map(function(r){ return '<tr><td class="num">' + esc(r.dh) + '</td><td>' + esc(r.u) + '</td><td class="cd">' + esc(r.oc) + '</td><td class="num">' + esc(r.erp) + '</td><td><b>' + esc(r.cli) + '</b></td><td class="num">' + esc(r.a || '—') + '</td><td class="num"><b>' + esc(r.n) + '</b></td><td class="r num ' + (r.dd > 0 ? 'tx-ab' : 'tx-ac') + '">' + difDias(r.dd) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+}
+function excelHistDatas(){ var L = [['data_hora', 'usuario', 'os', 'erp', 'cliente', 'data_anterior', 'data_nova', 'dif_dias']]; (B.hd || []).forEach(function(r){ L.push([r.dh, r.u, r.oc, r.erp, r.cli, r.a, r.n, r.dd]); }); csv('Historico_Datas_Entrega.csv', L); reg('DOWNLOAD EXCEL HISTÓRICO DATAS', L.length - 1 + ' linhas'); }
 
 /* ============================ FATURAMENTO ============================ */
 /* V3.7 — importação do relatório do ERP */
@@ -1177,7 +1338,9 @@ var CSS_PR = '@page{size:A4 landscape;margin:8mm}' +
   '.bd{break-inside:auto}.bd-h{padding:8px 12px;break-after:avoid}.bd-d{font-size:20px!important}.bd-k b{font-size:14px!important}.bd-b{background:#fff;padding:6px;display:block}' +
   '.cg{break-inside:auto;background:#fff}.cg-h{grid-template-columns:110px 1fr auto!important;padding:8px 12px}.cg-h .lg{width:110px}.cg-n{font-size:18px}.cg-k{grid-column:auto!important;justify-content:flex-end!important;text-align:right!important;gap:22px!important}.cg-k b{font-size:15px!important}.pc-l{border-right:1px solid #E1E5EA!important}.kpis{grid-template-columns:repeat(5,1fr)!important}.cg.fe .cg-b,.cg-b{display:block!important}.cg-b .pc{margin-bottom:6px}' +
   '.tbw{max-height:none!important;overflow:visible!important;border:0}.tb{font-size:9.5px}.tb th{position:static}.tb td,.tb th{padding:4px 5px}.tb tr{break-inside:avoid}' +
-  '.hd{border:0;padding:0 0 6px}.sec{font-size:13px;margin:12px 0 4px;break-after:avoid}.vazio{padding:8px}';
+  '.hd{border:0;padding:0 0 6px}.sec{font-size:13px;margin:12px 0 4px;break-after:avoid}.vazio{padding:8px}' +
+  '.kpis{display:grid!important;grid-template-columns:repeat(6,1fr)!important;margin-bottom:8px}.kp{padding:8px 10px}.kp-v{font-size:20px!important}' +
+  '.tfx{table-layout:fixed;width:100%}.tfx .bdg{white-space:normal}.tfx td,.tfx th{word-break:break-word}.pdg{break-inside:avoid;margin-bottom:8px}.pdg-h{font-size:11px;background:#EEF1F5;padding:4px 8px;border-left:3px solid #D0121C;break-after:avoid}.pdg-h span{color:#566170;font-size:9.5px;margin-left:6px}';
 function imprimir(titulo, corpo, acao, det){
   var agora = new Date(), dh = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR').substring(0, 5);
   var st = document.querySelector('style').outerHTML;
