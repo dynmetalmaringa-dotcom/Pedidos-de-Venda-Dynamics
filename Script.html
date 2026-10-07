@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V4.8
+   FLUXO VENDA DYNAMICS · Script V4.9
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -894,21 +894,56 @@ function recarregar(){ atualizar(false); }
 /* ============================ V4.6 — DATAS DE ENTREGA E REVISÕES (relatório do ForWood) ============================ */
 var DT = null;
 function chipData(p){ return p.da ? '<i class="tg da" title="Data de entrega alterada em ' + esc(p.da.dh) + ' por ' + esc(p.da.u) + (p.da.k > 1 ? ' · ' + p.da.k + ' alterações' : '') + '">alterada · era ' + esc(p.da.a) + '</i>' : ''; }
+/* V4.8 — lê o Excel no navegador e envia só as colunas necessárias (arquivos grandes não passam inteiros pelo servidor) */
+var COLS_FW = [/^codigo$/, /observacao/, /produto codigo/, /produto descricao/, /^qtde?$|^qtd /, /^valor unit/, /^valor total/, /previsao/, /^situacao$/, /ordem (de )?compra/, /^status$/];
+function nhFw(x){ return String(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); }
+function lerXlsxLinhas(buf){
+  var wb = XLSX.read(buf, { type: 'array', sheets: 0, dense: true }), ws = wb.Sheets[wb.SheetNames[0]];
+  var M = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+  var cab = (M[0] || []).map(nhFw), idx = [], pv = -1;
+  COLS_FW.forEach(function(re){ for (var i = 0; i < cab.length; i++) if (re.test(cab[i])){ if (idx.indexOf(i) < 0) idx.push(i); if (/previsao/.test(cab[i]) && pv < 0) pv = i; return; } });
+  idx.sort(function(a, b){ return a - b; });
+  var out = [idx.map(function(i){ return M[0][i]; })], ie = cab.indexOf('codigo'), kp = idx.indexOf(pv);
+  for (var r = 1; r < M.length; r++){
+    var row = M[r]; if (!row || (ie >= 0 && String(row[ie]).trim() === '')) continue;
+    var o = idx.map(function(i){ return row[i]; });
+    if (kp >= 0 && typeof o[kp] === 'number'){ var d = XLSX.SSF.parse_date_code(o[kp]); if (d) o[kp] = ('0' + d.d).slice(-2) + '/' + ('0' + d.m).slice(-2) + '/' + d.y; }
+    out.push(o);
+  }
+  return out;
+}
 function impDatas(f, inp){
   if (!f) return;
   if (inp) inp.value = '';
-  impMsg('ld', 'Lendo o relatório <b>' + esc(f.name) + '</b>, atualizando as datas e dando baixa no que já foi faturado… aguarde, pode levar até 1 minuto.');
+  var mb = Math.round(f.size / 1048576 * 10) / 10;
+  impMsg('ld', 'Lendo o relatório <b>' + esc(f.name) + '</b> (' + mb + ' MB), atualizando as datas e dando baixa no que já foi faturado… aguarde, arquivo grande pode levar alguns minutos. Não feche a tela.');
+  function fim(x){
+    if (!x || !x.ok){ impMsg('er', esc((x && x.msg) || 'O relatório não pôde ser lido.')); return; }
+    x.nome = f.name; DT = x; ir('up');
+    var bf = x.baixaFeita || { n: 0 };
+    impMsg('ok', 'Relatório processado: <b>' + x.datasFeitas + '</b> data(s) de entrega atualizada(s) e <b>' + bf.n + '</b> pedido(s) baixado(s) como faturado. Veja a conferência abaixo.');
+    if (x.datasFeitas || bf.n) atualizar(false);
+  }
+  function falha(e){ impMsg('er', 'Falha ao processar no servidor: ' + esc(e)); }
   var r = new FileReader();
   r.onerror = function(){ impMsg('er', 'Não consegui abrir o arquivo no navegador. Tente de novo.'); };
-  r.onload = function(){ var b64 = String(r.result).split(',')[1];
-    srv('processarPrevisoes', [TK, b64, f.name], function(x){
-      if (!x || !x.ok){ impMsg('er', esc((x && x.msg) || 'O relatório não pôde ser lido.')); return; }
-      x.nome = f.name; DT = x; ir('up');
-      var bf = x.baixaFeita || { n: 0 };
-      impMsg('ok', 'Relatório processado: <b>' + x.datasFeitas + '</b> data(s) de entrega atualizada(s) e <b>' + bf.n + '</b> pedido(s) baixado(s) como faturado. Veja a conferência abaixo.');
-      if (x.datasFeitas || bf.n) atualizar(false);
-    }, function(e){ impMsg('er', 'Falha ao processar no servidor: ' + esc(e)); }); };
-  r.readAsDataURL(f);
+  if (f.size > 3 * 1048576){
+    r.onload = function(){
+      carregaXlsx(function(ok){
+        if (!ok){ impMsg('er', 'Não consegui carregar o leitor de Excel (internet). Tente de novo.'); return; }
+        setTimeout(function(){
+          var L; try { L = lerXlsxLinhas(r.result); } catch (e){ impMsg('er', 'Não consegui ler o Excel neste navegador: ' + esc(e && e.message || e)); return; }
+          if (L.length < 2){ impMsg('er', 'A primeira aba da planilha não tem pedidos.'); return; }
+          impMsg('ld', 'Excel lido (' + (L.length - 1) + ' linhas). Enviando ao servidor e atualizando…');
+          srv('processarPrevisoesLinhas', [TK, L, f.name], fim, falha);
+        }, 50);
+      });
+    };
+    r.readAsArrayBuffer(f);
+  } else {
+    r.onload = function(){ srv('processarPrevisoes', [TK, String(r.result).split(',')[1], f.name], fim, falha); };
+    r.readAsDataURL(f);
+  }
 }
 function difDias(n){ return n === null || n === undefined ? '' : (n > 0 ? '+' : '') + n + ' d'; }
 function telaDatas(){
