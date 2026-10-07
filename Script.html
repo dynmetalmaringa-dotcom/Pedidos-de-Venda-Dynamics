@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V4.7
+   FLUXO VENDA DYNAMICS · Script V4.8
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -859,7 +859,7 @@ function audExcel(){
 
 /* ============================ UPLOAD E REGISTROS ============================ */
 function telaUp(){
-  var h = '<div class="imp no-pr"><div><b>Atualizar datas de entrega e conferir revisões (relatório do ForWood)</b><span>Rode no ForWood o relatório de pedidos de venda em Excel (.xlsx) e envie aqui. O app mostra o que mudou e, depois da sua conferência, atualiza <b>somente a data de entrega</b>. O mesmo envio gera o relatório de revisões para o Orçamento.</span></div>' +
+  var h = '<div class="imp no-pr"><div><b>Atualizar datas de entrega e conferir revisões (relatório do ForWood)</b><span>Rode no ForWood o relatório de pedidos de venda em Excel (.xlsx) e envie aqui. Ao enviar, o app <b>atualiza sozinho as datas de entrega</b> e <b>dá baixa</b> nos pedidos que o ERP já mostra como “Atendido Total”. Pedidos “Atendido Parcial” só têm a data atualizada (o ERP não informa o saldo). O mesmo envio gera o relatório de revisões e datas para o Orçamento.</span></div>' +
     '<label class="btn dk">Escolher relatório<input type="file" accept=".xlsx,.xls" style="display:none" onchange="impDatas(this.files[0],this)"></label><div id="impSt" class="impst"></div></div>' +
     (DT ? telaDatas() : '') + '<div class="up3">' +
     '<div class="drop"><b>Pedido de venda (PDF)</b><p>Um ou vários PDFs do ForWood. Entram na fila e são lidos no próximo processamento.</p><input type="file" accept="application/pdf" multiple onchange="subir(this,\'pedido\')"><div id="st_pedido"></div></div>' +
@@ -897,32 +897,37 @@ function chipData(p){ return p.da ? '<i class="tg da" title="Data de entrega alt
 function impDatas(f, inp){
   if (!f) return;
   if (inp) inp.value = '';
-  impMsg('ld', 'Lendo o relatório <b>' + esc(f.name) + '</b>… aguarde, pode levar até 1 minuto.');
+  impMsg('ld', 'Lendo o relatório <b>' + esc(f.name) + '</b>, atualizando as datas e dando baixa no que já foi faturado… aguarde, pode levar até 1 minuto.');
   var r = new FileReader();
   r.onerror = function(){ impMsg('er', 'Não consegui abrir o arquivo no navegador. Tente de novo.'); };
   r.onload = function(){ var b64 = String(r.result).split(',')[1];
-    srv('lerPrevisoes', [TK, b64, f.name], function(x){
+    srv('processarPrevisoes', [TK, b64, f.name], function(x){
       if (!x || !x.ok){ impMsg('er', esc((x && x.msg) || 'O relatório não pôde ser lido.')); return; }
-      x.nome = f.name; x.sel = {}; x.datas.forEach(function(d){ x.sel[d.id] = true; });
-      DT = x; ir('up');
-      impMsg('ok', 'Relatório lido: ' + x.res.conf + ' pedido(s) conferido(s). Confira as datas abaixo e clique em <b>Aplicar</b>.');
-    }, function(e){ impMsg('er', 'Falha ao ler no servidor: ' + esc(e)); }); };
+      x.nome = f.name; DT = x; ir('up');
+      var bf = x.baixaFeita || { n: 0 };
+      impMsg('ok', 'Relatório processado: <b>' + x.datasFeitas + '</b> data(s) de entrega atualizada(s) e <b>' + bf.n + '</b> pedido(s) baixado(s) como faturado. Veja a conferência abaixo.');
+      if (x.datasFeitas || bf.n) atualizar(false);
+    }, function(e){ impMsg('er', 'Falha ao processar no servidor: ' + esc(e)); }); };
   r.readAsDataURL(f);
 }
 function difDias(n){ return n === null || n === undefined ? '' : (n > 0 ? '+' : '') + n + ' d'; }
 function telaDatas(){
-  var x = DT, r = x.res, nrev = r.nova + r.os + r.valor + r.antiga, nsel = x.datas.filter(function(d){ return x.sel[d.id]; }).length;
+  var x = DT, r = x.res, nrev = r.nova + r.os + r.valor + r.antiga, bf = x.baixaFeita || { n: 0, it: 0, tot: 0 };
   var h = '<div class="sec">Conferência do relatório · ' + esc(x.nome) + '</div><div class="kpis">' +
-    kp('Pedidos conferidos', r.conf, '', 'do app com o ForWood') + kp('Data igual', r.igual, 'ac', 'sem alteração') +
-    kp('Data diferente', x.datas.length, x.datas.length ? 'ab' : '', 'a atualizar') + kp('Revisões a conferir', nrev, nrev ? 'ab' : '', 'relatório para o Orçamento') +
-    kp('Faltam no app', r.faltam, r.faltam ? 'ab' : '', 'em aberto no ForWood') + kp('Fora do relatório', r.noRel, '', 'pedidos antigos do app') + '</div>';
-  h += '<div class="fl"><span class="lb">Datas de entrega</span><span class="hn">marque as que valem · só a data é alterada</span><span class="gap"></span>' +
-    '<button class="btn" onclick="dtMarca(true)">Marcar todas</button><button class="btn" onclick="dtMarca(false)">Desmarcar</button>' +
-    '<button class="btn dk" onclick="relatorioRev()">Relatório de revisões (Excel)</button><button class="btn dk" onclick="relatorioRevPdf()">Relatório de revisões (PDF)</button><button class="btn" onclick="DT=null;ir(\'up\')">Fechar</button>' +
-    '<button class="btn red" id="dtB" onclick="aplicaDatas()"' + (x.datas.length ? '' : ' disabled') + '>Aplicar ' + nsel + ' data(s)</button></div>';
-  if (!x.datas.length) h += '<div class="vazio"><b>Todas as datas já estão iguais ao ForWood</b><p>Nada a atualizar neste relatório.</p></div>';
-  else h += '<div class="tbw"><table class="tb"><thead><tr><th></th><th>Cliente</th><th>OS</th><th>ERP</th><th class="num">Entrega no app</th><th class="num">Entrega no ForWood</th><th class="r">Diferença</th><th>Mês</th><th>Situação no ForWood</th><th class="r">Valor cheio</th></tr></thead><tbody>' +
-    x.datas.map(function(d){ return '<tr><td><input type="checkbox" ' + (x.sel[d.id] ? 'checked' : '') + ' onchange="DT.sel[\'' + d.id + '\']=this.checked;ir(\'up\')"></td><td><b>' + esc(d.cli) + '</b></td><td class="cd">' + esc(d.oc) + '</td><td class="num">' + esc(d.erp) + '</td><td class="num">' + esc(d.ant || '—') + '</td><td class="num"><b>' + esc(d.nov) + '</b></td><td class="r num ' + (d.dd > 0 ? 'tx-ab' : 'tx-ac') + '">' + difDias(d.dd) + '</td><td>' + (d.mm ? '<span class="bdg am">muda de mês</span>' : '') + '</td><td>' + esc(d.st) + (d.multi ? ' <small>(itens com datas diferentes: usei a maior)</small>' : '') + '</td><td class="r num">' + rs2(d.v) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    kp('Pedidos conferidos', r.conf, '', 'do app com o ForWood') + kp('Datas atualizadas', x.datasFeitas || 0, x.datasFeitas ? 'ac' : '', 'já gravadas no app') +
+    kp('Baixas feitas', bf.n, bf.n ? 'ac' : '', bf.n ? bf.it + ' item(ns) · ' + rs2(bf.tot) : 'nada novo a baixar') + kp('Revisões a conferir', nrev, nrev ? 'ab' : '', 'relatório para o Orçamento') +
+    kp('Baixa não feita', x.baixaBloq.length, x.baixaBloq.length ? 'ab' : '', 'atendido no ERP · conferir') + kp('Faltam no app', r.faltam, r.faltam ? 'ab' : '', 'em aberto no ForWood') + (r.cancel ? kp('Cancelados no app', r.cancel, '', 'mantidos · sem data nem baixa') : '') + '</div>';
+  h += '<div class="fl"><span class="lb">Relatório de diferenças</span><span class="hn">só revisões e datas · nada de faturado</span><span class="gap"></span>' +
+    '<button class="btn dk" onclick="relatorioRev()">Relatório de revisões (Excel)</button><button class="btn dk" onclick="relatorioRevPdf()">Relatório de revisões (PDF)</button><button class="btn" onclick="DT=null;ir(\'up\')">Fechar</button></div>';
+  if (!x.datas.length) h += '<div class="vazio"><b>Todas as datas já estavam iguais ao ForWood</b><p>Nenhuma data foi alterada.</p></div>';
+  else h += '<div class="sec">Datas de entrega atualizadas <span>marcadas como “alterada” no app e registradas no histórico</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>OS</th><th>ERP</th><th class="num">Era</th><th class="num">Ficou</th><th class="r">Diferença</th><th>Mês</th><th>Situação no ForWood</th><th class="r">Valor cheio</th></tr></thead><tbody>' +
+    x.datas.map(function(d){ return '<tr><td><b>' + esc(d.cli) + '</b></td><td class="cd">' + esc(d.oc) + '</td><td class="num">' + esc(d.erp) + '</td><td class="num">' + esc(d.ant || '—') + '</td><td class="num"><b>' + esc(d.nov) + '</b></td><td class="r num ' + (d.dd > 0 ? 'tx-ab' : 'tx-ac') + '">' + difDias(d.dd) + '</td><td>' + (d.mm ? '<span class="bdg am">muda de mês</span>' : '') + '</td><td>' + esc(d.st) + (d.multi ? ' <small>(itens com datas diferentes: usei a maior)</small>' : '') + '</td><td class="r num">' + rs2(d.v) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  if (x.baixas.length) h += '<div class="sec">Baixas feitas · atendido no ERP <span>lançadas como faturado (NF “S/NF”, data de hoje) · saldo que faltava baixar</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>OS</th><th>ERP</th><th class="r">Itens</th><th class="r">Valor Dynamics baixado</th></tr></thead><tbody>' +
+    x.baixas.map(function(v){ return '<tr><td><b>' + esc(v.cli) + '</b></td><td class="cd">' + esc(v.oc) + '</td><td class="num">' + esc(v.erp) + '</td><td class="r num">' + v.itens.length + '</td><td class="r num">' + rs2(v.total) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  if (x.baixaBloq.length) h += '<div class="sec">Baixa não feita <span>o ERP mostra atendido, mas a OS ou o valor não confere com o app · conferir antes de baixar</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>OS no app</th><th>ERP</th><th>Motivo</th></tr></thead><tbody>' +
+    x.baixaBloq.map(function(v){ return '<tr><td><b>' + esc(v.cli) + '</b></td><td class="cd">' + esc(v.oc) + '</td><td class="num">' + esc(v.erp) + '</td><td>' + esc(v.motivo) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+  if (x.parcSem.length) h += '<div class="sec">Atendido parcial no ERP e sem lançamento no app <span>o ERP não informa o saldo: lance o faturamento deste pedido (relatório de faturamento)</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>OS no app</th><th>ERP</th><th class="num">Entrega</th><th class="r">Valor ForWood (40%)</th></tr></thead><tbody>' +
+    x.parcSem.map(function(v){ return '<tr><td><b>' + esc(v.cli) + '</b></td><td class="cd">' + esc(v.oc) + '</td><td class="num">' + esc(v.erp) + '</td><td class="num">' + esc(v.ent) + '</td><td class="r num">' + rs2(v.vE) + '</td></tr>'; }).join('') + '</tbody></table></div>';
   if (x.semdata.length) h += '<div class="sec">Sem data no ForWood <span>o ForWood mostra 30/12 ou 31/12 (sem data definida): a data do app foi mantida</span></div><div class="tbw"><table class="tb"><thead><tr><th>Cliente</th><th>OS</th><th>ERP</th><th class="num">Entrega no app</th><th class="num">ForWood</th></tr></thead><tbody>' +
     x.semdata.map(function(d){ return '<tr><td><b>' + esc(d.cli) + '</b></td><td class="cd">' + esc(d.oc) + '</td><td class="num">' + esc(d.erp) + '</td><td class="num">' + esc(d.ent) + '</td><td class="num">' + esc(d.fw) + '</td></tr>'; }).join('') + '</tbody></table></div>';
   if (x.revs.length){
@@ -933,18 +938,6 @@ function telaDatas(){
   if (x.faltam.length) h += '<div class="sec">Em aberto no ForWood e fora do app <span>o Orçamento precisa subir o PDF</span></div><div class="tbw"><table class="tb"><thead><tr><th>ERP</th><th>OS no ForWood</th><th>Cliente</th><th class="num">Entrega</th><th>Situação</th><th class="r">Valor (40%)</th></tr></thead><tbody>' +
     x.faltam.map(function(v){ return '<tr><td class="num">' + esc(v.erp) + '</td><td class="cd">' + esc(v.oc) + '</td><td><b>' + esc(v.cli) + '</b></td><td class="num">' + esc(v.ent) + '</td><td>' + esc(v.st) + '</td><td class="r num">' + rs2(v.vE) + '</td></tr>'; }).join('') + '</tbody></table></div>';
   return h;
-}
-function dtMarca(v){ DT.datas.forEach(function(d){ DT.sel[d.id] = v; }); ir('up'); }
-function aplicaDatas(){
-  var l = DT.datas.filter(function(d){ return DT.sel[d.id]; }).map(function(d){ return { id: d.id, nov: d.nov }; });
-  if (!l.length){ toast('Nenhuma data marcada.'); return; }
-  if (!confirm('Atualizar a data de entrega de ' + l.length + ' pedido(s)? Só a data será alterada e fica registrada no histórico.')) return;
-  var b = document.getElementById('dtB'); b.disabled = true; b.textContent = 'Gravando…';
-  srv('gravarPrevisoes', [TK, l, DT.nome], function(r){
-    toast(r.msg);
-    if (r.ok){ DT.aplic = (DT.aplic || []).concat(DT.datas.filter(function(d){ return DT.sel[d.id]; })); DT.datas = DT.datas.filter(function(d){ return !DT.sel[d.id]; }); DT.res.datas = DT.datas.length; atualizar(false); setTimeout(function(){ ir('up'); impMsg('ok', esc(r.msg) + ' Os pedidos ficam marcados como “alterada” no app. Baixe o relatório de revisões para o Orçamento.'); }, 1500); }
-    else { b.disabled = false; b.textContent = 'Aplicar'; impMsg('er', esc(r.msg)); }
-  }, function(e){ b.disabled = false; b.textContent = 'Aplicar'; impMsg('er', 'Falha ao gravar: ' + esc(e)); });
 }
 function carregaXlsx(cb){
   if (window.XLSX && window.XLSX.__estilo) return cb(true);
@@ -963,13 +956,12 @@ function dadosRev(){
   var F = [['Pedido ERP', 'OS no ForWood', 'Cliente', 'Entrega no ForWood', 'Situação no ForWood', 'Valor ForWood (40%)', 'O que fazer']];
   x.faltam.forEach(function(v){ F.push([v.erp, v.oc, v.cli, v.ent, v.st, v.vE, 'Subir o PDF do pedido']); });
   var D = [['Pedido ERP', 'OS no app', 'Cliente', 'Entrega no app (antes)', 'Entrega no ForWood', 'Diferença (dias)', 'Situação no ForWood', 'No app']];
-  (x.aplic || []).forEach(function(d){ D.push([d.erp, d.oc, d.cli, d.ant, d.nov, d.dd === null ? '' : d.dd, d.st, 'Data atualizada']); });
-  x.datas.forEach(function(d){ D.push([d.erp, d.oc, d.cli, d.ant, d.nov, d.dd === null ? '' : d.dd, d.st, 'Ainda não atualizada']); });
+  x.datas.forEach(function(d){ D.push([d.erp, d.oc, d.cli, d.ant, d.nov, d.dd === null ? '' : d.dd, d.st, 'Data atualizada no app']); });
   x.semdata.forEach(function(d){ D.push([d.erp, d.oc, d.cli, d.ent, d.fw + ' (sem data no ForWood)', '', d.st, 'Mantida a data do app']); });
   var hoje = new Date().toLocaleDateString('pt-BR');
   var R = [['Relatório de diferenças · app × ForWood'], ['Emitido em', hoje + ' por ' + EU.n], ['Arquivo do ForWood', x.nome], [],
     ['Pedidos conferidos', r.conf], ['Revisão nova no ForWood (subir PDF)', r.nova], ['OS diferente (conferir PDF carregado)', r.os], ['Mesma revisão, valor diferente', r.valor], ['ForWood em revisão mais antiga', r.antiga],
-    ['Em aberto no ForWood e fora do app (subir PDF)', r.faltam], ['Datas de entrega diferentes', x.datas.length + (x.aplic || []).length + x.semdata.length], [],
+    ['Em aberto no ForWood e fora do app (subir PDF)', r.faltam], ['Datas de entrega diferentes', x.datas.length + x.semdata.length], [],
     ['Valores a 40% (valor Dynamics). Pedidos parciais: o ForWood não informa o saldo, então os itens não são comparados.']];
   return { A: A, I: I, F: F, D: D, R: R };
 }
@@ -1020,7 +1012,7 @@ function relatorioRevPdf(){
   var x = DT; if (!x) return;
   var r = x.res, cor = { NOVA: 'ab', OS: 'ab', VALOR: 'am', ANTIGA: 'nd' };
   var h = '<div class="kpis">' + kp('Pedidos conferidos', r.conf, '', 'do app com o ForWood') + kp('Revisão nova', r.nova, r.nova ? 'ab' : '', 'subir o PDF') + kp('OS diferente', r.os, r.os ? 'ab' : '', 'conferir o PDF') +
-    kp('Valor diferente', r.valor, '', 'mesma revisão') + kp('Faltam no app', r.faltam, r.faltam ? 'ab' : '', 'subir o PDF') + kp('Datas diferentes', x.datas.length + (x.aplic || []).length + x.semdata.length, '', 'no ForWood') + '</div>';
+    kp('Valor diferente', r.valor, '', 'mesma revisão') + kp('Faltam no app', r.faltam, r.faltam ? 'ab' : '', 'subir o PDF') + kp('Datas diferentes', x.datas.length + x.semdata.length, '', 'no ForWood') + '</div>';
   h += '<div class="sec">1. Revisões a conferir <span>o Orçamento deve subir o PDF da revisão indicada</span></div>';
   if (!x.revs.length) h += '<p>Nenhuma diferença de revisão encontrada.</p>';
   else h += '<table class="tb tfx"><colgroup><col style="width:11%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:7.5%"><col style="width:9%"><col style="width:10.5%"><col style="width:6%"><col style="width:29%"></colgroup><thead><tr><th>Situação</th><th>OS app</th><th>OS ForWood</th><th>Cliente</th><th>Entrega</th><th class="r">Valor app</th><th class="r">Valor ForWood</th><th class="r">Itens</th><th>O que fazer</th></tr></thead><tbody>' +
