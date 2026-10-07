@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V4.1
+ * Arquivo: App              Versão: V4.3
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -232,7 +232,7 @@ function carregar(tk) {
         dt: _dataBr(r[I.data_rev_tabela])
       });
     });
-    var DYN = _mapaDyn(), REV = _revisoes(), FAT = _faturadoPorItem(), STT = _statusPorOs();
+    var DYN = _mapaDyn(), REV = _revisoes(), FAT = _faturadoPorItem(), STT = _statusPorOs(), HDT = _alteracoesData();
     vp.forEach(function (r) {
       if (String(r[P.vigente]).trim() !== 'SIM') return;
       var id = String(r[P.id_pedido]).trim(), rev = pvRev_(r[P.revisao]);
@@ -252,7 +252,7 @@ function carregar(tk) {
       /* faturamento: por OS (vale para qualquer revisão) + código */
       var os = pvOs_(p.oc), fv = 0, comp1 = true, algum = false;
       itens.forEach(function (x) {
-        var f = FAT[os + '|' + x.c]; x.fq = f ? _r2(f.q) : 0; x.fv = f ? _r2(f.v) : 0;
+        var f = FAT[os + '|' + x.c]; x.fq = f ? _r2(f.q) : 0; x.fv = f ? _r2(f.v) : 0; x.fd = f ? f.d.join(', ') : '';
         fv += x.fv; if (x.fq > 0) algum = true; if (x.fq + 0.0001 < x.q) comp1 = false;
       });
       p.fv40 = _r2(fv); p.fs = !algum ? '' : (comp1 && itens.length ? 'COMPLETO' : 'PARCIAL');
@@ -265,6 +265,7 @@ function carregar(tk) {
       var ra = REV[p.oc + '|' + rev];
       if (ra) p.alt = ra;
       var stt = STT[os]; if (stt && stt.s !== 'LIBERADO') p.st = stt;      // V3.7 — cancelado / paralisado
+      if (HDT[id]) p.da = HDT[id];                                        // V4.3 — data de entrega alterada pelo relatório do ForWood
       out.P.push(p);
     });
   }
@@ -275,6 +276,7 @@ function carregar(tk) {
     out.sitTab = _situacaoTabelas();
   }
   if (s.t.indexOf('up') >= 0) out.logs = _ultimosLogs(s.p === 'oculto');
+  if (s.t.indexOf('up') >= 0) out.hd = _ultimasDatas();                  // V4.3
   if (s.t.indexOf('reg') >= 0 && !out.logs.length) out.logs = _ultimosLogs(s.p === 'oculto');
   if (s.t.indexOf('flan') >= 0) out.fat = _lancamentos();
   out.motivos = _motivos();
@@ -405,7 +407,8 @@ function _faturadoPorItem() {
   if (!sh || sh.getLastRow() < 2) return m;
   sh.getRange(2, 1, sh.getLastRow() - 1, COLS_FAT.length).getValues().forEach(function (r) {
     var k = String(r[6]).trim() + '|' + String(r[9]).trim();
-    m[k] = m[k] || { q: 0, v: 0 }; m[k].q += Number(r[12]) || 0; m[k].v += Number(r[15]) || 0;
+    m[k] = m[k] || { q: 0, v: 0, d: [] }; m[k].q += Number(r[12]) || 0; m[k].v += Number(r[15]) || 0;
+    var dn = _dataBr(r[3]); if (dn && m[k].d.indexOf(dn) < 0) m[k].d.push(dn);          // V4.2 — datas de faturamento
   });
   return m;
 }
@@ -1149,4 +1152,208 @@ function _diaUtilAnterior(d) {
   var a = +m[3]; if (a < 100) a += 2000; var x = new Date(a, +m[2] - 1, +m[1]);
   do { x.setDate(x.getDate() - 1); } while (x.getDay() === 0 || x.getDay() === 6);
   return Utilities.formatDate(x, FUSO, 'dd/MM/yyyy');
+}
+
+/* ===================== V4.3 — MOTOR DE DATAS DE ENTREGA E CONFERÊNCIA DE REVISÕES =====================
+ * A data de entrega é gerida por terceiros no ForWood e não chega ao app. O Upload recebe o relatório de
+ * pedidos de venda do ForWood (Excel), compara com a base e:
+ *   1) mostra as datas que mudaram e, depois da conferência, atualiza SOMENTE a data de entrega;
+ *   2) registra cada mudança na aba HistoricoDatas (e marca o pedido no app);
+ *   3) devolve as diferenças de revisão/itens/valores para o Orçamento subir os PDFs mais atuais.
+ * Colunas esperadas: Codigo, Produto Codigo, QTD, VALOR UNIT, PREVISAO, Numero Ordem Compra, Status. */
+var ABA_HD = 'HistoricoDatas';
+var COLS_HD = ['data_hora', 'usuario', 'id_pedido', 'oc', 'os', 'numero_erp', 'cliente', 'data_anterior', 'data_nova', 'dif_dias', 'arquivo'];
+var DATAS_SEM_DATA = ['30/12', '31/12'];      // datas-curinga do ForWood: significam "sem data definida"
+
+function _abaHD() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.getSheetByName(ABA_HD);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_HD);
+    sh.getRange(1, 1, 1, COLS_HD.length).setValues([COLS_HD]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+/** Data (Date, dd/mm/aa, dd/mm/aaaa ou ISO) -> {s:'dd/MM/yyyy', n:aaaammdd, md:'dd/MM', ms:'aaaa-mm'} */
+function _pdt(v) {
+  if (v === null || v === undefined || v === '') return null;
+  var d;
+  if (Object.prototype.toString.call(v) === '[object Date]') { if (isNaN(v.getTime())) return null; d = Utilities.formatDate(v, FUSO, 'dd/MM/yyyy'); }
+  else d = String(v).trim();
+  var m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(d);
+  if (!m) {
+    var t = new Date(d); if (isNaN(t.getTime())) return null;
+    m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(Utilities.formatDate(t, FUSO, 'dd/MM/yyyy')); if (!m) return null;
+  }
+  var dd = ('0' + m[1]).slice(-2), mm = ('0' + m[2]).slice(-2), aa = +m[3]; if (aa < 100) aa += 2000;
+  return { s: dd + '/' + mm + '/' + aa, n: aa * 10000 + (+mm) * 100 + (+dd), md: dd + '/' + mm, ms: aa + '-' + mm };
+}
+function _dnDias(a, b) {
+  function t(n) { return Date.UTC(Math.floor(n / 10000), Math.floor(n / 100) % 100 - 1, n % 100); }
+  return Math.round((t(b.n) - t(a.n)) / 864e5);
+}
+function _nErp(x) { return String(x === null || x === undefined ? '' : x).trim().replace(/\.0+$/, ''); }
+function _nn(x) {
+  if (typeof x === 'number') return x;
+  var t = String(x === null || x === undefined ? '' : x).trim(); if (!t) return 0;
+  if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+  var f = parseFloat(t); return isNaN(f) ? 0 : f;
+}
+/** OC no mesmo padrão nos dois lados: 35.26.001-02 = 035.26.001-02 · RT11189 = 11189 */
+function _nOc(t) {
+  t = String(t || '').trim().replace(/^RT/i, '');
+  var m = /^(\d+)\.(\d+)\.(\d+)-(\d+)$/.exec(t);
+  return m ? ('00' + m[1]).slice(-3) + '.' + m[2] + '.' + ('00' + m[3]).slice(-3) + '-' + ('0' + m[4]).slice(-2) : t;
+}
+function _nOcPartes(t) { var m = /^(.*)-(\d+)$/.exec(_nOc(t)); return m ? { os: m[1], rev: +m[2] } : { os: _nOc(t), rev: null }; }
+function _nh(x) { return String(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); }
+
+/** Compara as linhas do relatório do ForWood (matriz com cabeçalho) com a base. Não grava nada. */
+function _prevAnalisar_(v) {
+  var cab = (v[0] || []).map(_nh);
+  function col(re) { for (var i = 0; i < cab.length; i++) if (re.test(cab[i])) return i; return -1; }
+  var C = { erp: col(/^codigo$/), obs: col(/observacao/), c: col(/produto codigo/), d: col(/produto descricao/), q: col(/^qtde?$|^qtd /), u: col(/^valor unit/),
+            t: col(/^valor total/), pv: col(/previsao/), sit: col(/^situacao$/), oc: col(/ordem (de )?compra/), st: col(/^status$/) };
+  if (C.erp < 0 || C.pv < 0 || C.oc < 0 || C.st < 0 || C.c < 0 || C.q < 0 || C.u < 0)
+    return { ok: false, msg: 'Planilha fora do padrão. Preciso do relatório de pedidos de venda do ForWood, com as colunas Codigo, Produto Codigo, QTD, VALOR UNIT, PREVISAO, Numero Ordem Compra e Status.' };
+  var E = {};
+  for (var i = 1; i < v.length; i++) {
+    var r = v[i], erp = _nErp(r[C.erp]); if (!erp) continue;
+    var e = E[erp] = E[erp] || { erp: erp, oc: '', obs: '', st: '', sit: '', tot: 0, prev: [], it: {} };
+    if (!e.oc) e.oc = String(r[C.oc]).trim();
+    if (!e.obs && C.obs >= 0) e.obs = String(r[C.obs]).trim();
+    if (!e.st) e.st = String(r[C.st]).trim();
+    if (!e.sit && C.sit >= 0) e.sit = String(r[C.sit]).trim();
+    var pd = _pdt(r[C.pv]); if (pd && !e.prev.some(function (x) { return x.n === pd.n; })) e.prev.push(pd);
+    var q = _nn(r[C.q]), u = _nn(r[C.u]), t = C.t >= 0 ? _nn(r[C.t]) : q * u, c = String(r[C.c]).trim();
+    var x = e.it[c] = e.it[c] || { c: c, d: C.d >= 0 ? String(r[C.d]).trim() : '', q: 0, t: 0 };
+    x.q += q; x.t += t; e.tot += t;
+  }
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), shP = ss.getSheetByName(ABA_PEDIDOS), shI = ss.getSheetByName(ABA_ITENS);
+  var P = _idx(COLS_PEDIDOS), I = _idx(COLS_ITENS), app = {};
+  if (shP && shP.getLastRow() > 1) shP.getRange(2, 1, shP.getLastRow() - 1, COLS_PEDIDOS.length).getValues().forEach(function (r) {
+    if (String(r[P.vigente]).trim() !== 'SIM') return;
+    var erp = _nErp(r[P.numero_erp]); if (!erp) return;
+    app[erp] = { id: String(r[P.id_pedido]).trim(), oc: String(r[P.oc]).trim(), rev: pvRev_(r[P.revisao]), erp: erp,
+      cli: String(r[P.cliente] || '').trim() || String(r[P.cli_pailon] || '').trim(), ent: _pdt(r[P.data_entrega]),
+      v40: _r2(r[P.total_40]), v: _r2(r[P.total_cheio]), rt: String(r[P.tipo] || '').trim() === 'RETRABALHO' };
+  });
+  var itApp = {};
+  if (shI && shI.getLastRow() > 1) shI.getRange(2, 1, shI.getLastRow() - 1, COLS_ITENS.length).getValues().forEach(function (r) {
+    var k = String(r[I.id_pedido]).trim() + '|' + pvRev_(r[I.revisao]), c = String(r[I.codigo]).trim();
+    var m = itApp[k] = itApp[k] || {}, x = m[c] = m[c] || { c: c, d: String(r[I.descricao] || '').trim(), q: 0, t: 0, u: Number(r[I.preco_40]) || 0 };
+    var q = Number(r[I.qtde]) || 0; x.q += q; x.t += q * (Number(r[I.preco_40]) || 0);
+  });
+  var R = { ok: true, datas: [], semdata: [], revs: [], itens: [], faltam: [], naoAprov: [], res: { app: Object.keys(app).length, conf: 0, noRel: 0, igual: 0, atend: 0, datas: 0, semdata: 0, nova: 0, antiga: 0, os: 0, valor: 0, faltam: 0 } };
+  Object.keys(app).forEach(function (erp) {
+    var a = app[erp], e = E[erp];
+    if (!e) { R.res.noRel++; return; }
+    R.res.conf++;
+    if (/nao aprovado/.test(_nh(e.sit))) R.naoAprov.push({ oc: a.oc, erp: erp, cli: a.cli, st: e.st });
+    if (/atendido total/.test(_nh(e.st))) { R.res.atend++; return; }
+    var pk = e.prev.slice().sort(function (x, y) { return x.n - y.n; }), nova = pk.length ? pk[pk.length - 1] : null;
+    // ---- data de entrega
+    if (nova) {
+      var curinga = DATAS_SEM_DATA.indexOf(nova.md) >= 0;
+      if (curinga && (!a.ent || DATAS_SEM_DATA.indexOf(a.ent.md) < 0)) {
+        R.semdata.push({ id: a.id, oc: a.oc, erp: erp, cli: a.cli, ent: a.ent ? a.ent.s : '', fw: nova.s, st: e.st }); R.res.semdata++;
+      } else if (!a.ent || a.ent.n !== nova.n) {
+        R.datas.push({ id: a.id, oc: a.oc, erp: erp, cli: a.cli, ant: a.ent ? a.ent.s : '', nov: nova.s, dd: a.ent ? _dnDias(a.ent, nova) : null,
+          mm: !!(a.ent && a.ent.ms !== nova.ms), st: e.st, v: a.v, multi: pk.length > 1 }); R.res.datas++;
+      } else R.res.igual++;
+    }
+    // ---- revisão / OS / valor
+    if (a.rt) return;
+    var pa = _nOcPartes(a.oc), pe = _nOcPartes(e.oc), tipo = '', acao = '';
+    var parcial = /parcial/.test(_nh(e.st)), dv = _r2(a.v40 - e.tot);
+    if (_nOc(a.oc) !== _nOc(e.oc)) {
+      if (pa.os === pe.os && pe.rev !== null && pa.rev !== null) {
+        if (pe.rev > pa.rev) { tipo = 'NOVA'; acao = 'Subir o PDF da revisão ' + ('0' + pe.rev).slice(-2) + ' (o app está na ' + ('0' + pa.rev).slice(-2) + ')'; }
+        else { tipo = 'ANTIGA'; acao = 'O ForWood está na revisão ' + ('0' + pe.rev).slice(-2) + ' e o app na ' + ('0' + pa.rev).slice(-2) + ': conferir no ForWood'; }
+      } else { tipo = 'OS'; acao = 'No ForWood o pedido ' + erp + ' é a OS ' + e.oc + '; no app está como ' + a.oc + ': conferir o PDF carregado'; }
+    } else if (!parcial && Math.abs(dv) > Math.max(2, e.tot * 0.0005)) { tipo = 'VALOR'; acao = 'Mesma revisão, valor diferente: conferir preços e itens e subir o PDF atualizado se necessário'; }
+    if (!tipo) return;
+    var ni = 0;
+    if (!parcial) {
+      var ia = itApp[a.id + '|' + a.rev] || {}, codes = {}; Object.keys(ia).forEach(function (c) { codes[c] = 1; }); Object.keys(e.it).forEach(function (c) { codes[c] = 1; });
+      Object.keys(codes).sort().forEach(function (c) {
+        var xa = ia[c], xe = e.it[c], ue = xe && xe.q ? xe.t / xe.q : 0, ua = xa && xa.q ? xa.t / xa.q : 0, d = '';
+        if (xa && !xe) d = 'NÃO EXISTE NO FORWOOD'; else if (!xa && xe) d = 'INCLUÍDO NO FORWOOD';
+        else if (Math.abs(xa.q - xe.q) > 0.0001) d = 'QUANTIDADE'; else if (Math.abs(ua - ue) > 0.011) d = 'PREÇO';
+        if (d) { ni++; R.itens.push({ erp: erp, oc: a.oc, cli: a.cli, c: c, d: (xe || xa).d, t: d, qa: xa ? xa.q : null, qe: xe ? xe.q : null, ua: xa ? _r2(ua) : null, ue: xe ? _r2(ue) : null }); }
+      });
+    } else acao += ' (parcial: o ForWood não informa o saldo; conferir os itens ao subir)';
+    R.revs.push({ id: a.id, oc: a.oc, revA: a.rev, ocE: e.oc, erp: erp, cli: a.cli, st: e.st, ent: nova ? nova.s : '', v40: a.v40, vE: _r2(e.tot), dv: parcial ? null : dv, tipo: tipo, acao: acao, ni: ni });
+    R.res[tipo === 'NOVA' ? 'nova' : tipo === 'ANTIGA' ? 'antiga' : tipo === 'OS' ? 'os' : 'valor']++;
+  });
+  Object.keys(E).forEach(function (erp) {
+    var e = E[erp]; if (app[erp] || /atendido total/.test(_nh(e.st))) return;
+    var pk = e.prev.slice().sort(function (x, y) { return x.n - y.n; });
+    R.faltam.push({ erp: erp, oc: e.oc, cli: e.obs, ent: pk.length ? pk[pk.length - 1].s : '', st: e.st, vE: _r2(e.tot) }); R.res.faltam++;
+  });
+  var po = { NOVA: 0, OS: 1, VALOR: 2, ANTIGA: 3 };
+  R.revs.sort(function (x, y) { return po[x.tipo] - po[y.tipo] || String(x.oc).localeCompare(String(y.oc)); });
+  R.datas.sort(function (x, y) { return _pdt(x.nov).n - _pdt(y.nov).n; });
+  R.faltam.sort(function (x, y) { return (_pdt(x.ent) || { n: 0 }).n - (_pdt(y.ent) || { n: 0 }).n; });
+  return R;
+}
+/** Passo 1 — lê o Excel do ForWood e devolve a conferência (nada é gravado). */
+function lerPrevisoes(tk, b64, nome) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('up') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Upload.' };
+  var blob = Utilities.newBlob(Utilities.base64Decode(b64), MimeType.MICROSOFT_EXCEL, nome || 'pedidos.xlsx');
+  var f = Drive.Files.insert ? Drive.Files.insert({ title: '__prev__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob, { convert: true })
+                             : Drive.Files.create({ name: '__prev__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob);
+  try {
+    var v = SpreadsheetApp.openById(f.id).getSheets()[0].getDataRange().getValues();
+    var R = _prevAnalisar_(v);
+    if (R.ok) _log(s, 'DATAS FORWOOD LIDAS', (nome || '') + ' · ' + (v.length - 1) + ' linha(s) · ' + R.res.datas + ' data(s) diferente(s) · ' + (R.res.nova + R.res.os + R.res.valor) + ' revisão(ões)/valor(es) a conferir');
+    return R;
+  } finally { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) {} }
+}
+/** Passo 2 — grava SOMENTE a data de entrega dos pedidos marcados e registra o histórico. lista = [{id, nov:'dd/mm/aaaa'}] */
+function gravarPrevisoes(tk, lista, arq) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('up') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Upload.' };
+  var lock = LockService.getScriptLock(); lock.tryLock(30000);
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PEDIDOS), P = _idx(COLS_PEDIDOS);
+    if (!sh || sh.getLastRow() < 2) return { ok: false, msg: 'Base de pedidos vazia.' };
+    var v = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_PEDIDOS.length).getValues(), pos = {};
+    v.forEach(function (r, i) { if (String(r[P.vigente]).trim() === 'SIM') pos[String(r[P.id_pedido]).trim()] = i; });
+    var hd = [], agora = _agora();
+    (lista || []).forEach(function (L) {
+      var i = pos[String(L.id).trim()]; if (i === undefined) return;
+      var nov = _pdt(L.nov); if (!nov) return;
+      var r = v[i], ant = _pdt(r[P.data_entrega]);
+      if (ant && ant.n === nov.n) return;
+      var cel = sh.getRange(i + 2, P.data_entrega + 1);
+      cel.setValue(Utilities.parseDate(nov.s, FUSO, 'dd/MM/yyyy')); cel.setNumberFormat('dd/MM/yy');
+      hd.push([agora, s.n, String(r[P.id_pedido]), String(r[P.oc]), pvOs_(r[P.oc]), String(r[P.numero_erp]),
+        String(r[P.cliente] || '').trim() || String(r[P.cli_pailon] || '').trim(), ant ? ant.s : '', nov.s, ant ? _dnDias(ant, nov) : '', arq || '']);
+    });
+    if (!hd.length) return { ok: true, n: 0, msg: 'Nenhuma data precisou ser alterada.' };
+    var h = _abaHD(); h.getRange(h.getLastRow() + 1, 1, hd.length, COLS_HD.length).setValues(hd);
+    _log(s, 'DATAS DE ENTREGA ATUALIZADAS', hd.length + ' pedido(s) · ' + (arq || ''));
+    return { ok: true, n: hd.length, msg: hd.length + ' data(s) de entrega atualizada(s).' };
+  } finally { lock.releaseLock(); }
+}
+/** Última alteração de data por pedido (para marcar no app). */
+function _alteracoesData() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_HD), m = {};
+  if (!sh || sh.getLastRow() < 2) return m;
+  sh.getRange(2, 1, sh.getLastRow() - 1, COLS_HD.length).getValues().forEach(function (r) {
+    var id = String(r[2]).trim(); if (!id) return;
+    var o = m[id] = m[id] || { k: 0 };
+    o.a = _dataBr(r[7]); o.n = _dataBr(r[8]); o.dh = _txtDh(r[0]).substring(0, 10); o.u = String(r[1]); o.k++;
+  });
+  return m;
+}
+function _ultimasDatas() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_HD);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var n = Math.min(300, sh.getLastRow() - 1);
+  return sh.getRange(sh.getLastRow() - n + 1, 1, n, COLS_HD.length).getValues().map(function (r) {
+    return { dh: _txtDh(r[0]), u: String(r[1]), oc: String(r[3]), erp: String(r[5]), cli: String(r[6]), a: _dataBr(r[7]), n: _dataBr(r[8]), dd: r[9] === '' ? '' : Number(r[9]) };
+  }).reverse();
 }
