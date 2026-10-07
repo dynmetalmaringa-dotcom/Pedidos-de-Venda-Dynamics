@@ -1,6 +1,6 @@
 <script>
 /* =====================================================================
-   FLUXO VENDA DYNAMICS · Script V5.0
+   FLUXO VENDA DYNAMICS · Script V5.2
    ===================================================================== */
 var TK = '', EU = null, B = null, TELA = '';
 var FV = { mes: '', dia: '', q: '', todo: false, rev: false, fd: 'dp', agr: 'm' }, FR = { mes: '', dia: '', q: '', todo: true, rev: false, fd: 'dp', agr: 'm' };
@@ -895,18 +895,24 @@ function recarregar(){ atualizar(false); }
 var DT = null;
 function chipData(p){ return p.da ? '<i class="tg da" title="Data de entrega alterada em ' + esc(p.da.dh) + ' por ' + esc(p.da.u) + (p.da.k > 1 ? ' · ' + p.da.k + ' alterações' : '') + '">alterada · era ' + esc(p.da.a) + '</i>' : ''; }
 /* V4.8 — lê o Excel no navegador e envia só as colunas necessárias (arquivos grandes não passam inteiros pelo servidor) */
-var COLS_FW = [/^codigo$/, /observacao/, /produto codigo/, /produto descricao/, /^qtde?$|^qtd /, /^valor unit/, /^valor total/, /previsao/, /^situacao$/, /ordem (de )?compra/, /^status$/];
+var COLS_FW = [/^codigo$/, /observacao/, /produto codigo/, /produto descricao/, /^qtde?( produto)?$|^qtd /, /^valor (produto )?unit/, /^valor (produto )?total/, /previsao/, /^situacao$/, /ordem (de )?compra$/, /^status$/];
 function nhFw(x){ return String(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim(); }
+var OBRIG_FW = [[/^codigo$/, 'Codigo'], [/produto codigo/, 'Produto Codigo'], [/^qtde?( produto)?$|^qtd /, 'QTD'], [/^valor (produto )?unit/, 'VALOR UNIT'], [/previsao/, 'PREVISAO'], [/ordem (de )?compra$/, 'Numero Ordem Compra'], [/^status$/, 'Status']];
 function lerXlsxLinhas(buf, erps){
   var wb = XLSX.read(buf, { type: 'array', sheets: 0, dense: true }), ws = wb.Sheets[wb.SheetNames[0]];
   var M = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
-  var cab = (M[0] || []).map(nhFw), idx = [], pv = -1;
+  /* acha a linha do cabeçalho (pode haver título acima) */
+  var h0 = 0, best = -1;
+  for (var k = 0; k < Math.min(30, M.length); k++){ var c = (M[k] || []).map(nhFw), n = OBRIG_FW.filter(function(o){ return c.some(function(x){ return o[0].test(x); }); }).length; if (n > best){ best = n; h0 = k; } }
+  var cab = (M[h0] || []).map(nhFw), falta = OBRIG_FW.filter(function(o){ return !cab.some(function(x){ return o[0].test(x); }); }).map(function(o){ return o[1]; });
+  if (falta.length){ var e = new Error('Faltam as colunas: ' + falta.join(', ') + '. Colunas encontradas na aba “' + wb.SheetNames[0] + '”: ' + (M[h0] || []).filter(function(x){ return String(x).trim(); }).slice(0, 40).join(' | ')); e.fw = 1; throw e; }
+  var idx = [], pv = -1;
   COLS_FW.forEach(function(re){ for (var i = 0; i < cab.length; i++) if (re.test(cab[i])){ if (idx.indexOf(i) < 0) idx.push(i); if (/previsao/.test(cab[i]) && pv < 0) pv = i; return; } });
   idx.sort(function(a, b){ return a - b; });
-  var out = [idx.map(function(i){ return M[0][i]; })], ie = cab.indexOf('codigo'), kp = idx.indexOf(pv), kd = idx.indexOf(cab.findIndex(function(c){ return /produto descricao/.test(c); })), ks = idx.indexOf(cab.findIndex(function(c){ return /^status$/.test(c); }));
-  for (var r = 1; r < M.length; r++){
-    var row = M[r]; if (!row || (ie >= 0 && String(row[ie]).trim() === '')) continue;
-    /* só segue o que interessa: pedidos que estão no app + pedidos em aberto no ForWood (os já atendidos e fora do app não servem) */
+  var ie = cab.findIndex(function(c){ return /^codigo$/.test(c); }), kp = idx.indexOf(pv), kd = idx.indexOf(cab.findIndex(function(c){ return /produto descricao/.test(c); })), ks = idx.indexOf(cab.findIndex(function(c){ return /^status$/.test(c); }));
+  var out = [idx.map(function(i){ return M[h0][i]; })];
+  for (var r = h0 + 1; r < M.length; r++){
+    var row = M[r]; if (!row || String(row[ie]).trim() === '') continue;
     var emApp = !erps || !!erps[String(row[ie]).trim().replace(/\.0+$/, '')];
     if (erps && !emApp && ks >= 0 && /atendido total/.test(nhFw(row[idx[ks]]))) continue;
     var o = idx.map(function(i){ return row[i]; });
@@ -937,7 +943,7 @@ function impDatas(f, inp){
         if (!ok){ impMsg('er', 'Não consegui carregar o leitor de Excel (internet). Tente de novo.'); return; }
         setTimeout(function(){
           var L; var ER = null; if (B && B.P && B.P.length){ ER = {}; B.P.forEach(function(p){ if (p.erp) ER[String(p.erp).trim().replace(/\.0+$/, '')] = 1; }); }
-          try { L = lerXlsxLinhas(r.result, ER); } catch (e){ impMsg('er', 'Não consegui ler o Excel neste navegador: ' + esc(e && e.message || e)); return; }
+          try { L = lerXlsxLinhas(r.result, ER); } catch (e){ impMsg('er', (e && e.fw ? 'Planilha fora do padrão. ' : 'Não consegui ler o Excel neste navegador: ') + esc(e && e.message || e)); return; }
           if (L.length < 2){ impMsg('er', 'A primeira aba da planilha não tem pedidos.'); return; }
           impMsg('ld', 'Excel lido: ' + (L.length - 1) + ' linhas relevantes. Enviando ao servidor e atualizando… (até 5 minutos)');
           var fin = false, wd = setTimeout(function(){ if (!fin){ fin = true; impMsg('er', 'O servidor não respondeu em 6 minutos. Recarregue a página (F5) e veja em Registros se o relatório foi processado; se não foi, envie de novo (não duplica nada).'); } }, 360000);
