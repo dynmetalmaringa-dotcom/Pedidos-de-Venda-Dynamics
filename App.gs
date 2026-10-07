@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V4.3
+ * Arquivo: App              Versão: V4.4
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -1244,13 +1244,19 @@ function _prevAnalisar_(v) {
     var m = itApp[k] = itApp[k] || {}, x = m[c] = m[c] || { c: c, d: String(r[I.descricao] || '').trim(), q: 0, t: 0, u: Number(r[I.preco_40]) || 0 };
     var q = Number(r[I.qtde]) || 0; x.q += q; x.t += q * (Number(r[I.preco_40]) || 0);
   });
-  var R = { ok: true, datas: [], semdata: [], revs: [], itens: [], faltam: [], naoAprov: [], res: { app: Object.keys(app).length, conf: 0, noRel: 0, igual: 0, atend: 0, datas: 0, semdata: 0, nova: 0, antiga: 0, os: 0, valor: 0, faltam: 0 } };
+  var FAT = _faturadoPorItem(), STT = _statusPorOs();
+  var R = { ok: true, datas: [], semdata: [], revs: [], itens: [], faltam: [], naoAprov: [], baixas: [], baixaBloq: [], parcSem: [], res: { app: Object.keys(app).length, conf: 0, noRel: 0, igual: 0, atend: 0, datas: 0, semdata: 0, nova: 0, antiga: 0, os: 0, valor: 0, faltam: 0, cancel: 0, baixa: 0, baixaIt: 0, jaBaixado: 0, bloq: 0, parcSem: 0 } };
   Object.keys(app).forEach(function (erp) {
     var a = app[erp], e = E[erp];
     if (!e) { R.res.noRel++; return; }
     R.res.conf++;
+    var stc = STT[pvOs_(a.oc)]; if (stc && stc.s === 'CANCELADO') { R.res.cancel++; return; }   // V4.4 — cancelado no app continua cancelado: sem data, sem baixa, sem revisão
     if (/nao aprovado/.test(_nh(e.sit))) R.naoAprov.push({ oc: a.oc, erp: erp, cli: a.cli, st: e.st });
-    if (/atendido total/.test(_nh(e.st))) { R.res.atend++; return; }
+    if (/atendido total/.test(_nh(e.st))) { R.res.atend++; _prevBaixa_(R, a, e, itApp, FAT); return; }   // V4.4 — baixa do que o ERP já atendeu
+    if (/parcial/.test(_nh(e.st)) && !a.rt) {                                                          // conferência: parcial no ERP sem nenhum lançamento no app
+      var os0 = pvOs_(a.oc), ia0 = itApp[a.id + '|' + a.rev] || {}, alg = Object.keys(ia0).some(function (c) { var f = FAT[os0 + '|' + c]; return f && f.q > 0; });
+      if (!alg) { R.parcSem.push({ oc: a.oc, erp: erp, cli: a.cli, ent: a.ent ? a.ent.s : '', vE: _r2(e.tot) }); R.res.parcSem++; }
+    }
     var pk = e.prev.slice().sort(function (x, y) { return x.n - y.n; }), nova = pk.length ? pk[pk.length - 1] : null;
     // ---- data de entrega
     if (nova) {
@@ -1297,6 +1303,59 @@ function _prevAnalisar_(v) {
   R.faltam.sort(function (x, y) { return (_pdt(x.ent) || { n: 0 }).n - (_pdt(y.ent) || { n: 0 }).n; });
   return R;
 }
+/** V4.4 — pedido "Atendido Total" no ERP: calcula o saldo que ainda não foi baixado no app. Só baixa se OS e valor conferem. */
+function _prevBaixa_(R, a, e, itApp, FAT) {
+  var ia = itApp[a.id + '|' + a.rev] || {}, os = pvOs_(a.oc), dv = _r2(a.v40 - e.tot), motivo = '';
+  if (_nOc(a.oc) !== _nOc(e.oc) && !a.rt) motivo = 'OS diferente no ForWood (' + e.oc + ')';
+  else if (!a.rt && Math.abs(dv) > Math.max(2, e.tot * 0.0005)) motivo = 'valor diferente (app ' + _r2(a.v40) + ' × ForWood ' + _r2(e.tot) + ')';
+  var its = [], tot = 0;
+  Object.keys(ia).forEach(function (c) {
+    var x = ia[c], f = FAT[os + '|' + c], fq = f ? f.q : 0, sd = _r2(x.q - fq);
+    if (sd > 0.0001) { its.push({ c: c, d: x.d, qp: x.q, qf: sd, up: _r2(x.u), uf: _r2(x.u) }); tot += sd * x.u; }
+  });
+  if (!its.length) { R.res.jaBaixado++; return; }
+  if (motivo) { R.baixaBloq.push({ oc: a.oc, erp: a.erp, cli: a.cli, motivo: motivo, vE: _r2(e.tot) }); R.res.bloq++; return; }
+  R.baixas.push({ id: a.id, oc: a.oc, rev: a.rev, erp: a.erp, cli: a.cli, itens: its, total: _r2(tot) }); R.res.baixa++; R.res.baixaIt += its.length;
+}
+/** V4.4 — grava as baixas na aba Faturamento (NF "S/NF", data de hoje, origem relatório ForWood). Refaz o saldo dentro do bloqueio: não duplica. */
+function _gravarBaixas_(s, baixas, arq) {
+  if (!baixas || !baixas.length) return { n: 0, it: 0, tot: 0 };
+  var sh = _abaFat(), agora = _agora(), hoje = Utilities.formatDate(new Date(), FUSO, 'dd/MM/yyyy'), dex = _diaUtilAnterior(hoje), FAT = _faturadoPorItem(), linhas = [], peds = 0, tot = 0;
+  baixas.forEach(function (B) {
+    var os = pvOs_(B.oc), n0 = linhas.length;
+    B.itens.forEach(function (x) {
+      var f = FAT[os + '|' + x.c], sd = _r2(x.qp - (f ? f.q : 0));
+      if (!(sd > 0.0001)) return;
+      tot += sd * x.uf;
+      linhas.push([agora, s.n + ' (baixa relatório ForWood)', 'S/NF', hoje, B.id, B.oc, os, pvRev_(B.rev), B.cli, x.c, x.d, x.qp, sd, x.up, x.uf, Math.round(sd * x.uf * 100) / 100, 'NAO', dex]);
+    });
+    if (linhas.length > n0) peds++;
+  });
+  if (!linhas.length) return { n: 0, it: 0, tot: 0 };
+  sh.getRange(sh.getLastRow() + 1, 1, linhas.length, COLS_FAT.length).setValues(linhas);
+  _log(s, 'BAIXA PELO RELATÓRIO FORWOOD', peds + ' pedido(s) · ' + linhas.length + ' item(ns) · R$ ' + (Math.round(tot * 100) / 100) + ' · ' + (arq || ''));
+  return { n: peds, it: linhas.length, tot: Math.round(tot * 100) / 100 };
+}
+/** V4.4 — passo único: lê o Excel do ForWood, ATUALIZA as datas e DÁ BAIXA no que o ERP já atendeu. Devolve a conferência (revisões, parcial sem lançamento, etc.). */
+function processarPrevisoes(tk, b64, nome) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('up') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Upload.' };
+  var blob = Utilities.newBlob(Utilities.base64Decode(b64), MimeType.MICROSOFT_EXCEL, nome || 'pedidos.xlsx');
+  var f = Drive.Files.insert ? Drive.Files.insert({ title: '__prev__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob, { convert: true })
+                             : Drive.Files.create({ name: '__prev__' + (nome || ''), mimeType: MimeType.GOOGLE_SHEETS }, blob);
+  var v;
+  try { v = SpreadsheetApp.openById(f.id).getSheets()[0].getDataRange().getValues(); }
+  finally { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) {} }
+  var lock = LockService.getScriptLock(); lock.tryLock(30000);
+  try {
+    var R = _prevAnalisar_(v);
+    if (!R.ok) return R;
+    var g = _gravarDatas_(s, R.datas.map(function (d) { return { id: d.id, nov: d.nov }; }), nome);
+    R.datasFeitas = g.n; R.baixaFeita = _gravarBaixas_(s, R.baixas, nome);
+    _log(s, 'RELATÓRIO FORWOOD PROCESSADO', (nome || '') + ' · ' + (v.length - 1) + ' linha(s) · ' + g.n + ' data(s) atualizada(s) · ' + R.baixaFeita.n + ' pedido(s) baixado(s) · ' + (R.res.nova + R.res.os + R.res.valor) + ' revisão(ões)/valor(es) a conferir');
+    return R;
+  } finally { lock.releaseLock(); }
+}
 /** Passo 1 — lê o Excel do ForWood e devolve a conferência (nada é gravado). */
 function lerPrevisoes(tk, b64, nome) {
   var s = _sessao(tk);
@@ -1316,27 +1375,29 @@ function gravarPrevisoes(tk, lista, arq) {
   var s = _sessao(tk);
   if (s.t.indexOf('up') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Upload.' };
   var lock = LockService.getScriptLock(); lock.tryLock(30000);
-  try {
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PEDIDOS), P = _idx(COLS_PEDIDOS);
-    if (!sh || sh.getLastRow() < 2) return { ok: false, msg: 'Base de pedidos vazia.' };
-    var v = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_PEDIDOS.length).getValues(), pos = {};
-    v.forEach(function (r, i) { if (String(r[P.vigente]).trim() === 'SIM') pos[String(r[P.id_pedido]).trim()] = i; });
-    var hd = [], agora = _agora();
-    (lista || []).forEach(function (L) {
-      var i = pos[String(L.id).trim()]; if (i === undefined) return;
-      var nov = _pdt(L.nov); if (!nov) return;
-      var r = v[i], ant = _pdt(r[P.data_entrega]);
-      if (ant && ant.n === nov.n) return;
-      var cel = sh.getRange(i + 2, P.data_entrega + 1);
-      cel.setValue(Utilities.parseDate(nov.s, FUSO, 'dd/MM/yyyy')); cel.setNumberFormat('dd/MM/yy');
-      hd.push([agora, s.n, String(r[P.id_pedido]), String(r[P.oc]), pvOs_(r[P.oc]), String(r[P.numero_erp]),
-        String(r[P.cliente] || '').trim() || String(r[P.cli_pailon] || '').trim(), ant ? ant.s : '', nov.s, ant ? _dnDias(ant, nov) : '', arq || '']);
-    });
-    if (!hd.length) return { ok: true, n: 0, msg: 'Nenhuma data precisou ser alterada.' };
-    var h = _abaHD(); h.getRange(h.getLastRow() + 1, 1, hd.length, COLS_HD.length).setValues(hd);
-    _log(s, 'DATAS DE ENTREGA ATUALIZADAS', hd.length + ' pedido(s) · ' + (arq || ''));
-    return { ok: true, n: hd.length, msg: hd.length + ' data(s) de entrega atualizada(s).' };
-  } finally { lock.releaseLock(); }
+  try { var g = _gravarDatas_(s, lista, arq); return g.n ? { ok: true, n: g.n, msg: g.n + ' data(s) de entrega atualizada(s).' } : { ok: true, n: 0, msg: g.msg || 'Nenhuma data precisou ser alterada.' }; }
+  finally { lock.releaseLock(); }
+}
+function _gravarDatas_(s, lista, arq) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PEDIDOS), P = _idx(COLS_PEDIDOS);
+  if (!sh || sh.getLastRow() < 2) return { n: 0, msg: 'Base de pedidos vazia.' };
+  var v = sh.getRange(2, 1, sh.getLastRow() - 1, COLS_PEDIDOS.length).getValues(), pos = {};
+  v.forEach(function (r, i) { if (String(r[P.vigente]).trim() === 'SIM') pos[String(r[P.id_pedido]).trim()] = i; });
+  var hd = [], agora = _agora();
+  (lista || []).forEach(function (L) {
+    var i = pos[String(L.id).trim()]; if (i === undefined) return;
+    var nov = _pdt(L.nov); if (!nov) return;
+    var r = v[i], ant = _pdt(r[P.data_entrega]);
+    if (ant && ant.n === nov.n) return;
+    var cel = sh.getRange(i + 2, P.data_entrega + 1);
+    cel.setValue(Utilities.parseDate(nov.s, FUSO, 'dd/MM/yyyy')); cel.setNumberFormat('dd/MM/yy');
+    hd.push([agora, s.n, String(r[P.id_pedido]), String(r[P.oc]), pvOs_(r[P.oc]), String(r[P.numero_erp]),
+      String(r[P.cliente] || '').trim() || String(r[P.cli_pailon] || '').trim(), ant ? ant.s : '', nov.s, ant ? _dnDias(ant, nov) : '', arq || '']);
+  });
+  if (!hd.length) return { n: 0 };
+  var h = _abaHD(); h.getRange(h.getLastRow() + 1, 1, hd.length, COLS_HD.length).setValues(hd);
+  _log(s, 'DATAS DE ENTREGA ATUALIZADAS', hd.length + ' pedido(s) · ' + (arq || ''));
+  return { n: hd.length };
 }
 /** Última alteração de data por pedido (para marcar no app). */
 function _alteracoesData() {
