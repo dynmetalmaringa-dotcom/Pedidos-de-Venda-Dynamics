@@ -1,6 +1,6 @@
 /**********************************************************************
  * FLUXO VENDA DYNAMICS — APLICATIVO WEB
- * Arquivo: App              Versão: V4.4
+ * Arquivo: App              Versão: V4.5
  *
  * Login por usuário e senha, termo de confidencialidade/LGPD,
  * registro de tudo (acessos, downloads, uploads) na aba LogAcoes.
@@ -1346,6 +1346,16 @@ function processarPrevisoes(tk, b64, nome) {
   var v;
   try { v = SpreadsheetApp.openById(f.id).getSheets()[0].getDataRange().getValues(); }
   finally { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) {} }
+  return _processarPrev_(s, v, nome);
+}
+/** V4.4 — arquivos grandes: o navegador lê o Excel e envia só as colunas necessárias (matriz com cabeçalho). */
+function processarPrevisoesLinhas(tk, linhas, nome) {
+  var s = _sessao(tk);
+  if (s.t.indexOf('up') < 0) return { ok: false, msg: 'Seu usuário não tem a tela Upload.' };
+  if (!linhas || linhas.length < 2) return { ok: false, msg: 'A planilha não tem linhas de pedidos.' };
+  return _processarPrev_(s, linhas, nome);
+}
+function _processarPrev_(s, v, nome) {
   var lock = LockService.getScriptLock(); lock.tryLock(30000);
   try {
     var R = _prevAnalisar_(v);
